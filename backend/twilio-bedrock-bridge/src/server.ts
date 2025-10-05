@@ -77,6 +77,7 @@ app.post('/webhook', (req: any, res: any) => {
 // Kubernetes health check endpoints
 app.get('/health/readiness', HealthHandler.getReadiness);
 app.get('/health/liveness', HealthHandler.getLiveness);
+app.get('/health', HealthHandler.getReadiness); // General health endpoint
 
 
 // Start server

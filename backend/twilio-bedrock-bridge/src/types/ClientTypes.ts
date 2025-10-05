@@ -139,6 +139,18 @@ export interface AudioStreamOptions {
   
   /** Whether to drop oldest chunks when queue is full */
   dropOldestOnFull?: boolean;
+  
+  /** Maximum output buffer size for model audio */
+  maxOutputBufferSize?: number;
+  
+  /** Processing timeout between batches in milliseconds */
+  processingTimeoutMs?: number;
+  
+  /** Enable real-time mode for low-latency processing */
+  realtimeMode?: boolean;
+  
+  /** Low latency threshold for real-time processing */
+  lowLatencyThreshold?: number;
 }
 
 /**
@@ -153,6 +165,12 @@ export interface SessionOptions {
   
   /** Audio streaming options */
   audioOptions?: AudioStreamOptions;
+  
+  /** Audio buffer configuration */
+  bufferConfig?: AudioBufferConfig;
+  
+  /** Enable real-time conversation features */
+  enableRealtimeFeatures?: boolean;
 }
 
 /**
@@ -264,4 +282,75 @@ export interface ClientHooks {
   
   /** Called after session cleanup */
   afterSessionCleanup?: SessionCleanupCallback;
+}
+
+/**
+ * Enhanced audio buffer configuration for different processing modes
+ */
+export interface AudioBufferConfig {
+  /** Input buffer configuration */
+  input: {
+    /** Maximum buffer size for standard mode */
+    standardMax: number;
+    /** Maximum buffer size for real-time mode */
+    realtimeMax: number;
+    /** Trim buffer to this size when full in real-time mode */
+    realtimeTrimTo: number;
+  };
+  
+  /** Output buffer configuration */
+  output: {
+    /** Maximum output buffer size */
+    maxSize: number;
+    /** Warning threshold for large buffers */
+    warningThreshold: number;
+  };
+  
+  /** Processing configuration */
+  processing: {
+    /** Maximum chunks to process per batch */
+    batchSize: number;
+    /** Timeout between processing batches */
+    timeoutMs: number;
+  };
+}
+
+/**
+ * Real-time conversation state
+ */
+export interface RealtimeConversationState {
+  /** Whether real-time mode is enabled */
+  realtimeMode: boolean;
+  
+  /** Whether user is currently speaking */
+  userSpeaking: boolean;
+  
+  /** Whether model is currently speaking */
+  modelSpeaking: boolean;
+  
+  /** Timestamp of last user activity */
+  lastUserActivity?: number;
+  
+  /** Timestamp of last model activity */
+  lastModelActivity?: number;
+}
+
+/**
+ * Audio queue statistics for monitoring
+ */
+export interface AudioQueueStats {
+  /** Current input queue length */
+  inputQueueLength: number;
+  
+  /** Current output buffer length */
+  outputBufferLength: number;
+  
+  /** Whether audio processing is active */
+  isProcessing: boolean;
+  
+  /** Maximum configured queue size */
+  maxQueueSize: number;
+  
+  /** Maximum configured output buffer size */
+  maxOutputBufferSize: number;
 }

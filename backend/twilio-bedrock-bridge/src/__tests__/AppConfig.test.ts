@@ -35,6 +35,10 @@ describe('AppConfig', () => {
           region: 'us-west-2',
           profileName: undefined
         },
+        bedrock: {
+          region: 'us-west-2',
+          modelId: 'amazon.nova-sonic-v1:0'
+        },
         twilio: {
           authToken: 'test-auth-token'
         },

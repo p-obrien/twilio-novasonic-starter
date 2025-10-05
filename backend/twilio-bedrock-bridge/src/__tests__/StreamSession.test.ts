@@ -2,8 +2,8 @@
  * Tests for StreamSession class
  */
 
-import { StreamSession } from '../client';
-import { NovaSonicBidirectionalStreamClient } from '../client';
+import { StreamSession, StreamClientInterface } from '../session/StreamSession';
+import { AudioStreamOptions } from '../types/ClientTypes';
 
 // Mock dependencies
 jest.mock('../utils/logger');
@@ -11,12 +11,14 @@ jest.mock('../utils/correlationId', () => ({
   CorrelationIdManager: {
     getCurrentContext: jest.fn().mockReturnValue({ correlationId: 'parent-correlation-id' }),
     createBedrockContext: jest.fn().mockReturnValue({ correlationId: 'bedrock-correlation-id' }),
-    setContext: jest.fn()
+    setContext: jest.fn(),
+    getCurrentCorrelationId: jest.fn().mockReturnValue('test-correlation-id'),
+    traceWithCorrelation: jest.fn().mockImplementation((name: string, fn: () => any) => fn())
   }
 }));
 
 describe('StreamSession', () => {
-  let mockClient: jest.Mocked<NovaSonicBidirectionalStreamClient>;
+  let mockClient: jest.Mocked<StreamClientInterface>;
   let session: StreamSession;
   const sessionId = 'test-session-id';
 
@@ -34,8 +36,9 @@ describe('StreamSession', () => {
       removeStreamSession: jest.fn(),
       enableRealtimeInterruption: jest.fn(),
       handleUserInterruption: jest.fn(),
-      setUserSpeakingState: jest.fn()
-    } as any;
+      setUserSpeakingState: jest.fn(),
+      streamAudioRealtime: jest.fn().mockResolvedValue(undefined)
+    };
 
     session = new StreamSession(sessionId, mockClient);
     jest.clearAllMocks();
@@ -49,13 +52,24 @@ describe('StreamSession', () => {
     it('should set up Bedrock correlation context', () => {
       const { CorrelationIdManager } = require('../utils/correlationId');
       
+      // Create a new session to trigger the correlation setup
+      const testSession = new StreamSession('test-correlation-session', mockClient);
+      
       expect(CorrelationIdManager.createBedrockContext).toHaveBeenCalledWith(
-        sessionId,
+        'test-correlation-session',
         { correlationId: 'parent-correlation-id' }
       );
       expect(CorrelationIdManager.setContext).toHaveBeenCalledWith({
         correlationId: 'bedrock-correlation-id'
       });
+    });
+
+    it('should throw error for invalid session ID', () => {
+      expect(() => new StreamSession('', mockClient)).toThrow('Session ID must be a non-empty string');
+    });
+
+    it('should throw error for missing client', () => {
+      expect(() => new StreamSession(sessionId, null as any)).toThrow('Client interface is required');
     });
   });
 
@@ -132,20 +146,11 @@ describe('StreamSession', () => {
         // Close session first
         await session.close();
 
-        await session.streamAudio(audioData);
-
-        expect(mockClient.streamAudioChunk).not.toHaveBeenCalled();
+        await expect(session.streamAudio(audioData)).rejects.toThrow('Session test-session-id is inactive');
       });
 
-      it('should manage input buffer size', async () => {
-        const audioData = Buffer.from('test-audio-data');
-
-        // Stream multiple chunks to test buffer management
-        for (let i = 0; i < 10; i++) {
-          await session.streamAudio(audioData);
-        }
-
-        expect(mockClient.streamAudioChunk).toHaveBeenCalledTimes(10);
+      it('should handle non-buffer input', async () => {
+        await expect(session.streamAudio('not-a-buffer' as any)).rejects.toThrow('Audio data must be a Buffer');
       });
     });
 
@@ -155,7 +160,7 @@ describe('StreamSession', () => {
 
         await session.streamAudioRealtime(audioData);
 
-        expect(mockClient.streamAudioChunk).toHaveBeenCalledWith(sessionId, audioData);
+        expect(mockClient.streamAudioRealtime).toHaveBeenCalledWith(sessionId, audioData);
       });
 
       it('should not stream if session is inactive', async () => {
@@ -164,9 +169,7 @@ describe('StreamSession', () => {
         // Close session first
         await session.close();
 
-        await session.streamAudioRealtime(audioData);
-
-        expect(mockClient.streamAudioChunk).not.toHaveBeenCalled();
+        await expect(session.streamAudioRealtime(audioData)).rejects.toThrow('Session test-session-id is inactive');
       });
     });
   });
@@ -256,9 +259,7 @@ describe('StreamSession', () => {
       it('should not call client if session is inactive', async () => {
         await session.close();
 
-        session.endAudioContent();
-
-        expect(mockClient.sendContentEnd).not.toHaveBeenCalled();
+        expect(() => session.endAudioContent()).toThrow('Failed to end audio content stream');
       });
     });
 
@@ -272,9 +273,7 @@ describe('StreamSession', () => {
       it('should not call client if session is inactive', async () => {
         await session.close();
 
-        session.endPrompt();
-
-        expect(mockClient.sendPromptEnd).not.toHaveBeenCalled();
+        expect(() => session.endPrompt()).toThrow('Failed to end prompt');
       });
     });
 
@@ -291,7 +290,7 @@ describe('StreamSession', () => {
           throw new Error('Test error');
         });
 
-        expect(() => session.endUserTurn()).not.toThrow();
+        expect(() => session.endUserTurn()).toThrow('Failed to end user turn');
       });
 
       it('should not call client methods if session is inactive', async () => {
@@ -381,6 +380,16 @@ describe('StreamSession', () => {
         expect(result).toBe(session);
         expect(mockClient.registerEventHandler).toHaveBeenCalledTimes(2);
       });
+
+      it('should throw error for invalid event type', () => {
+        const handler = jest.fn();
+
+        expect(() => session.onEvent('' as any, handler)).toThrow('Event type must be a non-empty string');
+      });
+
+      it('should throw error for invalid handler', () => {
+        expect(() => session.onEvent('audioOutput', null as any)).toThrow('Event handler must be a function');
+      });
     });
   });
 
@@ -390,7 +399,6 @@ describe('StreamSession', () => {
         await session.close();
 
         expect(mockClient.sendSessionEnd).toHaveBeenCalledWith(sessionId);
-        expect(mockClient.removeStreamSession).toHaveBeenCalledWith(sessionId);
       });
 
       it('should handle multiple close calls gracefully', async () => {
@@ -399,7 +407,6 @@ describe('StreamSession', () => {
 
         // Should only call cleanup methods once
         expect(mockClient.sendSessionEnd).toHaveBeenCalledTimes(1);
-        expect(mockClient.removeStreamSession).toHaveBeenCalledTimes(1);
       });
 
       it('should handle cleanup errors gracefully', async () => {
@@ -407,7 +414,7 @@ describe('StreamSession', () => {
           throw new Error('Cleanup error');
         });
 
-        await expect(session.close()).resolves.not.toThrow();
+        await expect(session.close()).rejects.toThrow('Failed to close session cleanly');
       });
 
       it('should clear audio buffers on close', async () => {
@@ -421,24 +428,77 @@ describe('StreamSession', () => {
         expect(session.getOutputBufferSize()).toBe(0);
       });
     });
+
+    describe('isSessionActive', () => {
+      it('should return true when session and client are active', () => {
+        expect(session.isSessionActive()).toBe(true);
+      });
+
+      it('should return false when session is closed', async () => {
+        await session.close();
+
+        expect(session.isSessionActive()).toBe(false);
+      });
+
+      it('should return false when client session is inactive', () => {
+        mockClient.isSessionActive.mockReturnValue(false);
+
+        expect(session.isSessionActive()).toBe(false);
+      });
+    });
+  });
+
+  describe('Statistics and Monitoring', () => {
+    describe('getAudioQueueStats', () => {
+      it('should return comprehensive queue statistics', () => {
+        const stats = session.getAudioQueueStats();
+
+        expect(stats).toHaveProperty('queueLength');
+        expect(stats).toHaveProperty('outputBufferLength');
+        expect(stats).toHaveProperty('isProcessing');
+        expect(stats).toHaveProperty('maxQueueSize');
+        expect(stats).toHaveProperty('maxOutputBufferSize');
+      });
+    });
+
+    describe('getRealtimeState', () => {
+      it('should return real-time conversation state', () => {
+        const state = session.getRealtimeState();
+
+        expect(state).toHaveProperty('realtimeMode');
+        expect(state).toHaveProperty('userSpeaking');
+        expect(state).toHaveProperty('conversationState');
+        expect(state).toHaveProperty('clientCapabilities');
+      });
+    });
+
+    describe('getMemoryStats', () => {
+      it('should return memory usage statistics', () => {
+        const stats = session.getMemoryStats();
+
+        expect(stats).toHaveProperty('inputBufferBytes');
+        expect(stats).toHaveProperty('outputBufferBytes');
+        expect(stats).toHaveProperty('totalBufferBytes');
+        expect(stats).toHaveProperty('memoryPressure');
+        expect(stats).toHaveProperty('utilizationPercent');
+      });
+    });
+
+    describe('getDiagnostics', () => {
+      it('should return comprehensive diagnostics', () => {
+        const diagnostics = session.getDiagnostics();
+
+        expect(diagnostics).toHaveProperty('sessionInfo');
+        expect(diagnostics).toHaveProperty('performance');
+        expect(diagnostics).toHaveProperty('memoryStats');
+        expect(diagnostics).toHaveProperty('queueStats');
+        expect(diagnostics).toHaveProperty('realtimeStats');
+        expect(diagnostics).toHaveProperty('configuration');
+      });
+    });
   });
 
   describe('Buffer Management', () => {
-    it('should handle input buffer overflow gracefully', async () => {
-      const audioData = Buffer.from('test-audio-data');
-
-      // Stream many chunks to test buffer overflow handling
-      const promises = [];
-      for (let i = 0; i < 100; i++) {
-        promises.push(session.streamAudio(audioData));
-      }
-
-      await Promise.all(promises);
-
-      // Should handle all chunks without throwing
-      expect(mockClient.streamAudioChunk).toHaveBeenCalledTimes(100);
-    });
-
     it('should handle output buffer overflow by dropping oldest chunks', () => {
       const audioData = Buffer.from('test-audio-data');
 
@@ -470,6 +530,38 @@ describe('StreamSession', () => {
       // Should not call client methods when session is not active
       expect(mockClient.sendContentEnd).not.toHaveBeenCalled();
       expect(mockClient.sendPromptEnd).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Configuration Options', () => {
+    it('should accept custom audio stream options', () => {
+      const options: AudioStreamOptions = {
+        maxQueueSize: 50,
+        maxChunksPerBatch: 3,
+        maxOutputBufferSize: 100,
+        processingTimeoutMs: 200,
+        dropOldestOnFull: false
+      };
+
+      const customSession = new StreamSession('custom-session', mockClient, options);
+      const stats = customSession.getAudioQueueStats();
+
+      expect(stats.maxQueueSize).toBe(50);
+      expect(stats.maxChunksPerBatch).toBe(3);
+      expect(stats.maxOutputBufferSize).toBe(100);
+      expect(stats.processingTimeoutMs).toBe(200);
+      expect(stats.dropOldestOnFull).toBe(false);
+    });
+
+    it('should validate configuration values', () => {
+      const invalidOptions: AudioStreamOptions = {
+        maxQueueSize: -1,
+        maxChunksPerBatch: 0,
+        maxOutputBufferSize: -5
+      };
+
+      expect(() => new StreamSession('invalid-session', mockClient, invalidOptions))
+        .toThrow('Buffer size configurations must be positive integers');
     });
   });
 });

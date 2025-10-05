@@ -80,7 +80,9 @@ export class SessionManager {
    * Gets all active session IDs
    */
   getActiveSessions(): string[] {
-    return Array.from(this.activeSessions.keys());
+    return Array.from(this.activeSessions.entries())
+      .filter(([_, session]) => session.isActive)
+      .map(([sessionId, _]) => sessionId);
   }
 
   /**

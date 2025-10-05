@@ -67,7 +67,9 @@ tramp
 *.sublime-workspace
 *.sublime-project
 
+# AI Tools
 .clinerules
+.kiro
 
 # =============================================================================
 # GO BACKEND
