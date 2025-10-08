@@ -1,22 +1,44 @@
-import { WebSocketServer } from 'ws';
-import http from 'http';
+// Node.js built-ins
+import http, { IncomingMessage } from 'http';
 
-import logger from '../utils/logger';
-import { NovaSonicBidirectionalStreamClient } from '../client';
-import { DefaultAudioInputConfiguration, DefaultAudioOutputConfiguration, DefaultTextConfiguration } from '../utils/constants';
-import { CorrelationIdManager } from '../utils/correlationId';
-import { setTimeoutWithCorrelation } from '../utils/asyncCorrelation';
-import { config } from '../config/AppConfig';
+// External packages
+import { WebSocketServer, WebSocket } from 'ws';
+
+// Internal modules - audio
+import { AudioBufferManager } from '../audio/AudioBufferManager';
 import {
   processBedrockAudioOutput,
   processTwilioAudioInput
 } from '../audio/AudioProcessor';
-import { AudioBufferManager } from '../audio/AudioBufferManager';
-import { webSocketSecurity } from '../security/WebSocketSecurity';
-import { WebSocketMetrics } from '../observability/websocketMetrics';
+
+// Internal modules - client
+import { NovaSonicBidirectionalStreamClient } from '../client';
+
+// Internal modules - config
+import { config } from '../config/AppConfig';
+
+// Internal modules - errors
+import { extractErrorDetails } from '../errors/ClientErrors';
+
+// Internal modules - observability
+import logger from '../observability/logger';
+import { safeTrace } from '../observability/safeTracing';
 import { SessionMetrics } from '../observability/sessionMetrics';
 import { smartSampler, TracingUtils } from '../observability/smartSampling';
-import { safeTrace } from '../observability/safeTracing';
+import { WebSocketMetrics } from '../observability/websocketMetrics';
+
+// Internal modules - security
+import { webSocketSecurity } from '../security/WebSocketSecurity';
+
+// Internal modules - types
+import { isTwilioMessage, isObject, isString } from '../types/TypeGuards';
+import { ExtendedWebSocket } from '../types/SharedTypes';
+
+// Internal modules - utils
+import { setTimeoutWithCorrelation } from '../utils/asyncCorrelation';
+import { DefaultAudioInputConfiguration, DefaultAudioOutputConfiguration, DefaultTextConfiguration } from '../utils/constants';
+import { CorrelationIdManager } from '../utils/correlationId';
+import { sanitizeInput } from '../utils/ValidationUtils';
 
 /**
  * Maps exported for potential external use (kept for parity with original server implementation).
@@ -29,12 +51,12 @@ export const wsIdToSessionId: Map<string, string> = new Map();
 // Uses default AWS credential chain (IAM roles in ECS, profiles locally)
 const bedrockClient = new NovaSonicBidirectionalStreamClient({
   clientConfig: { 
-    region: config.bedrock.region
+    region: config.bedrock?.region || 'us-east-1'
     // credentials will use default credential chain
   },
   bedrock: {
-    region: config.bedrock.region,
-    modelId: config.bedrock.modelId
+    region: config.bedrock?.region || 'us-east-1',
+    modelId: config.bedrock?.modelId || 'amazon.nova-sonic-v1:0'
   }
 });
 
@@ -83,7 +105,7 @@ export function initWebsocketServer(server: http.Server): void {
   });
 
   // WebSocket connection handling
-  wss.on('connection', (ws: any, req: any) => {
+  wss.on('connection', (ws: ExtendedWebSocket, req: IncomingMessage) => {
     const tempWsId = `twilio-ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     
     // Create initial correlation context for WebSocket connection
@@ -141,7 +163,7 @@ export function initWebsocketServer(server: http.Server): void {
       if (audioBuffer.length === 0) return;
 
       const sessionId = ws.id;
-      if (!bedrockClient.isSessionActive(sessionId)) {
+      if (!sessionId || !bedrockClient.isSessionActive(sessionId)) {
         logger.debug('No active Bedrock session for buffered audio', { client: tempWsId, sessionId });
         audioBuffer = []; // Clear buffer
         return;
@@ -159,9 +181,11 @@ export function initWebsocketServer(server: http.Server): void {
         }
 
         // Send combined buffer to Bedrock (non-blocking)
-        bedrockClient.streamAudioChunk(sessionId, combinedBuffer).catch((streamErr) => {
-          logger.warn('Failed to forward buffered audio chunk to Bedrock', { client: tempWsId, sessionId, err: streamErr });
-        });
+        if (sessionId) {
+          bedrockClient.streamAudioChunk(sessionId, combinedBuffer).catch((streamErr) => {
+            logger.warn('Failed to forward buffered audio chunk to Bedrock', { client: tempWsId, sessionId, err: streamErr });
+          });
+        }
 
         logger.debug('Forwarded buffered audio chunk to Bedrock', {
           client: tempWsId,
@@ -215,11 +239,40 @@ export function initWebsocketServer(server: http.Server): void {
     ws.twilioSampleRate = undefined;
 
 
-    ws.on('message', async (raw: any) => {
+    ws.on('message', async (raw: Buffer | string) => {
       // Ensure we're running within the WebSocket's correlation context
-      CorrelationIdManager.runWithContext(ws.correlationContext, async () => {
-        const msg = JSON.parse(raw.toString());
-        logger.debug('Received Twilio media frame', { client: tempWsId, event: msg.event, streamSid: msg.start?.streamSid || msg.streamSid || ws.twilioStreamSid, seq: msg.sequenceNumber || null });
+      CorrelationIdManager.runWithContext(ws.correlationContext || { correlationId: 'unknown', source: 'websocket', timestamp: Date.now() }, async () => {
+        let msg: unknown;
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch (parseError) {
+          logger.warn('Failed to parse WebSocket message', { 
+            client: tempWsId, 
+            error: extractErrorDetails(parseError),
+            rawLength: raw.length 
+          });
+          ws.close(1003, 'Invalid JSON message');
+          return;
+        }
+
+        // Validate message structure
+        if (!isTwilioMessage(msg)) {
+          logger.warn('Invalid Twilio message structure', { 
+            client: tempWsId, 
+            message: sanitizeInput(msg) 
+          });
+          ws.close(1003, 'Invalid message structure');
+          return;
+        }
+
+        logger.debug('Received Twilio media frame', { 
+          client: tempWsId, 
+          event: msg.event, 
+          streamSid: isObject(msg.start) && isString(msg.start.streamSid) ? msg.start.streamSid : 
+                    isString(msg.streamSid) ? msg.streamSid : 
+                    ws.twilioStreamSid, 
+          seq: msg.sequenceNumber || null 
+        });
 
       switch (msg.event) {
         case 'connected':
@@ -251,7 +304,7 @@ export function initWebsocketServer(server: http.Server): void {
               callSid: messageValidation.callSid,
               streamSid: streamSid,
               sessionId: tempWsId,
-              parentCorrelationId: ws.correlationContext.correlationId
+              parentCorrelationId: ws.correlationContext?.correlationId
             });
             ws.correlationContext = updatedContext;
             CorrelationIdManager.setContext(updatedContext);
@@ -269,11 +322,12 @@ export function initWebsocketServer(server: http.Server): void {
 
           // Ensure we have a Bedrock session for this websocket connection.
           // Use the websocket's assigned id as the session id so it's easy to correlate.
-          sessionId = ws.id;
-          // Record mapping for correlating websocket <-> bedrock session
-          try {
-            wsIdToSessionId.set(ws.id, sessionId);
-          } catch (e) {
+          if (ws.id) {
+            sessionId = ws.id;
+            // Record mapping for correlating websocket <-> bedrock session
+            try {
+              wsIdToSessionId.set(ws.id, sessionId);
+            } catch (e) {
             logger.debug('Failed to set wsIdToSessionId mapping', { wsId: ws.id, err: e });
           }
           try {
@@ -285,20 +339,16 @@ export function initWebsocketServer(server: http.Server): void {
                 logger.info('createStreamSession completed', { sessionId });
                 // Start the bidirectional stream in background; don't await since it runs until session end.
                 logger.debug('Starting initiateSession (background) for Bedrock', { sessionId, ts: Date.now() });
-                bedrockClient.initiateSession(sessionId).catch((e: any) => {
+                bedrockClient.initiateSession(sessionId).catch((e: unknown) => {
+                    const errorDetails = extractErrorDetails(e);
                   logger.error('Bedrock initiateSession failed (async)', { 
                     sessionId, 
-                    error: e, 
-                    message: e?.message,
-                    name: e?.name,
-                    code: e?.code,
-                    statusCode: e?.$metadata?.httpStatusCode,
-                    requestId: e?.$metadata?.requestId,
-                    stack: e?.stack
+                    ...errorDetails
                   });
                 });
               } catch (createErr) {
-                logger.warn('Failed to create/initiate Bedrock session (sync)', { sessionId, err: createErr, inspected: (createErr as any)?.stack ?? null });
+                const errorDetails = extractErrorDetails(createErr);
+                logger.warn('Failed to create/initiate Bedrock session (sync)', { sessionId, ...errorDetails });
               }
             } else {
               logger.debug('Bedrock session already active for sessionId', { sessionId });
@@ -341,7 +391,8 @@ export function initWebsocketServer(server: http.Server): void {
             }
 
             // Register handler for when model response ends to prepare for next user turn
-            bedrockClient.registerEventHandler(sessionId, 'contentEnd', (contentEnd: any) => {
+            bedrockClient.registerEventHandler(sessionId, 'contentEnd', (data: unknown) => {
+              const contentEnd = data as { role?: string; type?: string };
               // Check if this is the end of assistant audio content
               if (contentEnd?.role === 'ASSISTANT' && contentEnd?.type === 'AUDIO') {
                 logger.debug('Model finished speaking, ready for next user turn', { sessionId });
@@ -369,7 +420,8 @@ export function initWebsocketServer(server: http.Server): void {
             });
 
             // Register handler to forward Nova Sonic audioOutput events to Twilio using buffered streaming
-            bedrockClient.registerEventHandler(sessionId, 'audioOutput', (audioOut: any) => {
+            bedrockClient.registerEventHandler(sessionId, 'audioOutput', (data: unknown) => {
+              const audioOut = data as { audio?: string; sampleRateHz?: number; sample_rate_hz?: number };
               const timestamp = Date.now();
               logger.debug('audioOutput handler invoked', { 
                 sessionId, 
@@ -401,6 +453,7 @@ export function initWebsocketServer(server: http.Server): void {
           } catch (err) {
             logger.warn('Error ensuring Bedrock session for Twilio start', { err });
           }
+          } // Close if (ws.id) block
 
           break;
         }
@@ -556,7 +609,7 @@ export function initWebsocketServer(server: http.Server): void {
 
     ws.on('close', async (code: number, reason: string) => {
       // Run close handler within correlation context
-      CorrelationIdManager.runWithContext(ws.correlationContext, async () => {
+      CorrelationIdManager.runWithContext(ws.correlationContext || { correlationId: 'unknown', source: 'websocket', timestamp: Date.now() }, async () => {
         const clientForLogs = sessionId ?? tempWsId;
         logger.info('WebSocket closed', { client: clientForLogs, code, reason });
 
@@ -570,7 +623,9 @@ export function initWebsocketServer(server: http.Server): void {
 
       // Clean up session mappings
       try { 
-        wsIdToSessionId.delete(ws.id);
+        if (ws.id) {
+          wsIdToSessionId.delete(ws.id);
+        }
         if (ws.callSid) {
           callSidToSessionId.delete(ws.callSid);
         }
@@ -626,8 +681,8 @@ export function initWebsocketServer(server: http.Server): void {
       });
     });
 
-    ws.on('error', (err: any) => {
-      CorrelationIdManager.runWithContext(ws.correlationContext, () => {
+    ws.on('error', (err: Error) => {
+      CorrelationIdManager.runWithContext(ws.correlationContext || { correlationId: 'unknown', source: 'websocket', timestamp: Date.now() }, () => {
         logger.warn('WebSocket error', { client: tempWsId, err });
       });
     });

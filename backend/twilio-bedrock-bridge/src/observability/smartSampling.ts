@@ -8,7 +8,7 @@
 import { trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { observabilityConfig } from './config';
 import { isOtelAvailable } from './tracing';
-import logger from '../utils/logger';
+import logger from './logger';
 
 export interface SamplingContext {
   operationName: string;

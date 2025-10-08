@@ -7,7 +7,7 @@
 
 import { EventEmitter } from 'events';
 import { observabilityConfig } from './config';
-import logger from '../utils/logger';
+import logger from './logger';
 
 export interface MemoryUsageInfo {
   rss: number;

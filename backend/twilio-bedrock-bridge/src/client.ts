@@ -43,11 +43,21 @@ import {
   DefaultTextConfiguration,
   BufferSizeConfig
 } from "./utils/constants";
-import logger from './utils/logger';
+import logger from './observability/logger';
 import { CorrelationIdManager } from './utils/correlationId';
 import { setTimeoutWithCorrelation } from './utils/asyncCorrelation';
 import { config } from './config/AppConfig';
 import { StreamSession } from './session/StreamSession';
+import { 
+  BedrockClientError, 
+  isBedrockClientError, 
+  extractErrorDetails, 
+  createBedrockServiceError,
+  ValidationError,
+  SessionAlreadyExistsError
+} from './errors/ClientErrors';
+import { isValidSessionId } from './types/TypeGuards';
+import { validateInferenceConfig } from './utils/ValidationUtils';
 
 // ============================================================================
 // TYPES AND INTERFACES
@@ -67,8 +77,8 @@ interface SessionData {
   queue: Array<any>;
   queueSignal: Subject<void>;
   closeSignal: Subject<void>;
-  responseSubject: Subject<any>;
-  responseHandlers: Map<string, (data: any) => void>;
+  responseSubject: Subject<{ type: string; data: unknown }>;
+  responseHandlers: Map<string, (data: unknown) => void>;
   promptName: string;
   inferenceConfig: InferenceConfig;
   isActive: boolean;
@@ -165,8 +175,45 @@ export class NovaSonicBidirectionalStreamClient {
     sessionId: string = randomUUID(),
     config?: NovaSonicBidirectionalStreamClientConfig
   ): StreamSession {
+    // Validate session ID
+    if (!isValidSessionId(sessionId)) {
+      throw ValidationError.create(
+        'Invalid session ID format',
+        ['Session ID must contain only alphanumeric characters, hyphens, and underscores'],
+        'createStreamSession',
+        CorrelationIdManager.getCurrentCorrelationId(),
+        { sessionId }
+      );
+    }
+
     if (this.activeSessions.has(sessionId)) {
-      throw new Error(`Stream session with ID ${sessionId} already exists`);
+      throw SessionAlreadyExistsError.create(
+        sessionId,
+        'createStreamSession',
+        CorrelationIdManager.getCurrentCorrelationId()
+      );
+    }
+
+    // Validate inference config if provided
+    if (config?.inferenceConfig) {
+      try {
+        validateInferenceConfig(
+          config.inferenceConfig,
+          'createStreamSession',
+          CorrelationIdManager.getCurrentCorrelationId()
+        );
+      } catch (validationError) {
+        if (isBedrockClientError(validationError)) {
+          throw validationError;
+        }
+        throw ValidationError.create(
+          'Invalid inference configuration',
+          [String(validationError)],
+          'createStreamSession',
+          CorrelationIdManager.getCurrentCorrelationId(),
+          { config: config.inferenceConfig }
+        );
+      }
     }
 
     const session = this.createSessionData(sessionId, config?.inferenceConfig);
@@ -376,7 +423,7 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Register an event handler for a session
    */
-  public registerEventHandler(sessionId: string, eventType: string, handler: (data: any) => void): void {
+  public registerEventHandler(sessionId: string, eventType: string, handler: (data: unknown) => void): void {
     const session = this.activeSessions.get(sessionId);
     if (!session) {
       throw new Error(`Session ${sessionId} not found`);
@@ -580,7 +627,7 @@ export class NovaSonicBidirectionalStreamClient {
       ...config.requestHandlerConfig,
     });
 
-    const clientConfig: any = {
+    const clientConfig: BedrockRuntimeClientConfig = {
       ...config.clientConfig,
       region: config.clientConfig.region || config.bedrock?.region || "us-east-1",
       requestHandler: nodeHttp2Handler
@@ -634,9 +681,9 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Sanitize event for logging to avoid circular references and large content
    */
-  private sanitizeEventForLogging(event: any): any {
+  private sanitizeEventForLogging(event: unknown): unknown {
     try {
-      return JSON.parse(JSON.stringify(event, (k: string, v: any) => {
+      return JSON.parse(JSON.stringify(event, (k: string, v: unknown) => {
         // Remove large content for logging
         if (k === 'content' && typeof v === 'string' && v.length > 200) {
           return `[${v.length} bytes removed]`;
@@ -657,19 +704,20 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Normalize data for event handlers
    */
-  private normalizeForHandlers(obj: any): any {
+  private normalizeForHandlers(obj: unknown): unknown {
     if (!obj || typeof obj !== 'object') return obj;
 
     try {
-      const id = obj.contentId ?? obj.contentName;
+      const typedObj = obj as any;
+      const id = typedObj.contentId ?? typedObj.contentName;
       if (id) {
-        obj.contentId = id;
-        obj.contentName = id;
+        typedObj.contentId = id;
+        typedObj.contentName = id;
       }
 
-      if (typeof obj.additionalModelFields === 'string' && !obj.parsedAdditionalModelFields) {
+      if (typeof typedObj.additionalModelFields === 'string' && !typedObj.parsedAdditionalModelFields) {
         try {
-          obj.parsedAdditionalModelFields = JSON.parse(obj.additionalModelFields);
+          typedObj.parsedAdditionalModelFields = JSON.parse(typedObj.additionalModelFields);
         } catch { /* ignore */ }
       }
     } catch (e) {
@@ -682,20 +730,32 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Handle session errors
    */
-  private handleSessionError(sessionId: string, error: any): void {
+  private handleSessionError(sessionId: string, error: unknown): void {
+    const errorDetails = extractErrorDetails(error);
+    const correlationId = CorrelationIdManager.getCurrentCorrelationId();
+    
     logger.error(`Error in session ${sessionId}:`, {
-      error,
-      message: error instanceof Error ? error.message : String(error),
-      name: (error as any)?.name,
-      code: (error as any)?.code,
-      statusCode: (error as any)?.$metadata?.httpStatusCode,
-      requestId: (error as any)?.$metadata?.requestId,
-      metadata: (error as any)?.$metadata
+      sessionId,
+      correlationId,
+      ...errorDetails
     });
+
+    // Create appropriate error based on type
+    let clientError: BedrockClientError;
+    if (isBedrockClientError(error)) {
+      clientError = error;
+    } else {
+      clientError = createBedrockServiceError(
+        error,
+        'handleSessionError',
+        sessionId,
+        correlationId
+      );
+    }
 
     this.dispatchEventForSession(sessionId, 'error', {
       source: 'bidirectionalStream',
-      error
+      error: clientError.toJSON()
     });
 
     const session = this.activeSessions.get(sessionId);
@@ -844,7 +904,7 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Dispatch events to session handlers
    */
-  private dispatchEventForSession(sessionId: string, eventType: string, data: any): void {
+  private dispatchEventForSession(sessionId: string, eventType: string, data: unknown): void {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
 
@@ -890,7 +950,7 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Dispatch events (alias for backward compatibility)
    */
-  private dispatchEvent(sessionId: string, eventType: string, data: any): void {
+  private dispatchEvent(sessionId: string, eventType: string, data: unknown): void {
     this.dispatchEventForSession(sessionId, eventType, data);
     
     // Record event in custom observability
@@ -898,35 +958,38 @@ export class NovaSonicBidirectionalStreamClient {
     
     // Handle special events
     if (eventType === 'usageEvent' && data) {
+      const typedData = data as any;
       logger.info('Usage event received', {
         sessionId,
-        inputTokens: data.inputTokens,
-        outputTokens: data.outputTokens,
-        totalTokens: data.totalTokens
+        inputTokens: typedData.inputTokens,
+        outputTokens: typedData.outputTokens,
+        totalTokens: typedData.totalTokens
       });
       
       bedrockObservability.recordUsage(sessionId, {
-        inputTokens: data.inputTokens,
-        outputTokens: data.outputTokens,
-        totalTokens: data.totalTokens
+        inputTokens: typedData.inputTokens,
+        outputTokens: typedData.outputTokens,
+        totalTokens: typedData.totalTokens
       });
     } else if (eventType === 'streamComplete') {
       bedrockObservability.completeSession(sessionId, 'completed');
     } else if (eventType === 'error') {
-      bedrockObservability.recordError(sessionId, data.message || 'Unknown error', data);
+      const typedData = data as any;
+      bedrockObservability.recordError(sessionId, typedData?.message || 'Unknown error', data);
     }
   }
 
   /**
    * Add event to session queue
    */
-  private addEventToSessionQueue(sessionId: string, event: any): void {
+  private addEventToSessionQueue(sessionId: string, event: unknown): void {
     const session = this.activeSessions.get(sessionId);
     if (!session || !session.isActive) return;
 
-    const eventKey = event?.event && Object.keys(event.event)[0];
+    const typedEvent = event as any;
+    const eventKey = typedEvent?.event && Object.keys(typedEvent.event)[0];
     const isAudioEvent = eventKey === 'audioInput' ||
-      (eventKey === 'contentStart' && event.event.contentStart?.type === 'AUDIO');
+      (eventKey === 'contentStart' && typedEvent.event?.contentStart?.type === 'AUDIO');
 
     // Validate that the event can be serialized before adding to queue
     try {
@@ -968,14 +1031,14 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Wait for event acknowledgment
    */
-  private async waitForEventAck(sessionId: string, matchFn: (evt: any) => boolean, timeoutMs: number = 5000): Promise<any> {
+  private async waitForEventAck(sessionId: string, matchFn: (evt: unknown) => boolean, timeoutMs: number = 5000): Promise<unknown> {
     const session = this.activeSessions.get(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found for ack`);
 
     try {
       const ack = await Promise.race([
         firstValueFrom(session.responseSubject.pipe(
-          filter((evt: any) => {
+          filter((evt: unknown) => {
             try {
               return matchFn(evt);
             } catch (e) {
@@ -1127,7 +1190,7 @@ export class NovaSonicBidirectionalStreamClient {
           return { value: undefined, done: true };
         },
 
-        throw: async (error: any): Promise<IteratorResult<InvokeModelWithBidirectionalStreamInput>> => {
+        throw: async (error: unknown): Promise<IteratorResult<InvokeModelWithBidirectionalStreamInput>> => {
           logger.error(`Iterator throw() called for session ${sessionId}:`, error);
           session.isActive = false;
           throw error;
@@ -1141,14 +1204,15 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Log event sending with audio event suppression
    */
-  private logEventSending(sessionId: string, eventCount: number, nextEvent: any): void {
+  private logEventSending(sessionId: string, eventCount: number, nextEvent: unknown): void {
     try {
-      const eventKey = nextEvent?.event && Object.keys(nextEvent.event)[0];
+      const typedEvent = nextEvent as any;
+      const eventKey = typedEvent?.event && Object.keys(typedEvent.event)[0];
       const isAudioEvent = eventKey === 'audioInput' ||
-        (eventKey === 'contentStart' && nextEvent.event.contentStart?.type === 'AUDIO');
+        (eventKey === 'contentStart' && typedEvent.event?.contentStart?.type === 'AUDIO');
 
       if (!isAudioEvent) {
-        const sanitized = JSON.parse(JSON.stringify(nextEvent, (k: string, v: any) => {
+        const sanitized = JSON.parse(JSON.stringify(nextEvent, (k: string, v: unknown) => {
           if (k === 'content' && typeof v === 'string' && v.length > 200) {
             return `[${v.length} bytes removed]`;
           }
@@ -1166,7 +1230,7 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Process the response stream from AWS Bedrock (fallback method without instrumentation)
    */
-  private async processResponseStreamRaw(sessionId: string, response: any): Promise<void> {
+  private async processResponseStreamRaw(sessionId: string, response: { body?: AsyncIterable<unknown> }): Promise<void> {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
 
@@ -1176,7 +1240,7 @@ export class NovaSonicBidirectionalStreamClient {
       let hasAnyEvents = false;
 
       // Process the response stream directly without letting instrumentation interfere
-      for await (const event of response.body) {
+      for await (const event of response.body!) {
         hasAnyEvents = true;
         eventCount++;
 
@@ -1186,9 +1250,10 @@ export class NovaSonicBidirectionalStreamClient {
         }
 
         // Process events directly without extensive logging to avoid instrumentation issues
-        if (event.chunk?.bytes) {
+        const typedEvent = event as any;
+        if (typedEvent.chunk?.bytes) {
           try {
-            const textResponse = new TextDecoder().decode(event.chunk.bytes);
+            const textResponse = new TextDecoder().decode(typedEvent.chunk.bytes);
             const jsonResponse = JSON.parse(textResponse);
             const evt = jsonResponse.event || {};
 
@@ -1235,7 +1300,7 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Process the response stream from AWS Bedrock
    */
-  private async processResponseStream(sessionId: string, response: any): Promise<void> {
+  private async processResponseStream(sessionId: string, response: { body?: AsyncIterable<unknown> }): Promise<void> {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
 
@@ -1244,7 +1309,7 @@ export class NovaSonicBidirectionalStreamClient {
       let eventCount = 0;
       let hasAnyEvents = false;
 
-      for await (const event of response.body) {
+      for await (const event of response.body!) {
         hasAnyEvents = true;
         eventCount++;
         logger.info(`*** Processing response event #${eventCount} for session ${sessionId} ***`);
@@ -1253,22 +1318,23 @@ export class NovaSonicBidirectionalStreamClient {
           logger.info('Session no longer active, stopping response processing', { sessionId });
           break;
         }
-        if (event.chunk?.bytes) {
+        const typedEvent = event as any;
+        if (typedEvent.chunk?.bytes) {
           try {
             this.updateSessionActivity(sessionId);
 
             // Debug: log the raw bytes to understand what we're receiving
             logger.debug(`Raw chunk bytes for session ${sessionId}:`, {
-              bytesType: typeof event.chunk.bytes,
-              bytesConstructor: event.chunk.bytes?.constructor?.name,
-              bytesLength: event.chunk.bytes?.length || event.chunk.bytes?.byteLength,
-              isUint8Array: event.chunk.bytes instanceof Uint8Array,
-              isBuffer: Buffer.isBuffer(event.chunk.bytes),
-              firstFewBytes: event.chunk.bytes instanceof Uint8Array ? Array.from(event.chunk.bytes.slice(0, 10)) : 'not-uint8array'
+              bytesType: typeof typedEvent.chunk.bytes,
+              bytesConstructor: typedEvent.chunk.bytes?.constructor?.name,
+              bytesLength: typedEvent.chunk.bytes?.length || typedEvent.chunk.bytes?.byteLength,
+              isUint8Array: typedEvent.chunk.bytes instanceof Uint8Array,
+              isBuffer: Buffer.isBuffer(typedEvent.chunk.bytes),
+              firstFewBytes: typedEvent.chunk.bytes instanceof Uint8Array ? Array.from(typedEvent.chunk.bytes.slice(0, 10)) : 'not-uint8array'
             });
 
             // Ensure we have proper bytes for TextDecoder
-            let bytesToDecode = event.chunk.bytes;
+            let bytesToDecode = typedEvent.chunk.bytes;
             if (!(bytesToDecode instanceof Uint8Array) && !Buffer.isBuffer(bytesToDecode)) {
               logger.warn(`Converting bytes to Uint8Array for session ${sessionId}`, {
                 originalType: typeof bytesToDecode,
@@ -1367,9 +1433,9 @@ export class NovaSonicBidirectionalStreamClient {
                 firstChars: textResponse?.substring(0, 100),
                 lastChars: textResponse?.length > 100 ? textResponse?.substring(textResponse.length - 100) : null,
                 rawBytesInfo: {
-                  type: typeof event.chunk.bytes,
-                  constructor: event.chunk.bytes?.constructor?.name,
-                  length: event.chunk.bytes?.length || event.chunk.bytes?.byteLength
+                  type: typeof typedEvent.chunk.bytes,
+                  constructor: typedEvent.chunk.bytes?.constructor?.name,
+                  length: typedEvent.chunk.bytes?.length || typedEvent.chunk.bytes?.byteLength
                 }
               });
 
@@ -1379,28 +1445,28 @@ export class NovaSonicBidirectionalStreamClient {
           } catch (e) {
             logger.error(`Error processing response chunk for session ${sessionId}: `, e);
           }
-        } else if (event.modelStreamErrorException) {
-          logger.error(`Model stream error for session ${sessionId}: `, event.modelStreamErrorException);
+        } else if (typedEvent.modelStreamErrorException) {
+          logger.error(`Model stream error for session ${sessionId}: `, typedEvent.modelStreamErrorException);
           this.dispatchEvent(sessionId, 'error', {
             type: 'modelStreamErrorException',
-            details: event.modelStreamErrorException
+            details: typedEvent.modelStreamErrorException
           });
-        } else if (event.internalServerException) {
-          logger.error(`Internal server error for session ${sessionId}: `, event.internalServerException);
+        } else if (typedEvent.internalServerException) {
+          logger.error(`Internal server error for session ${sessionId}: `, typedEvent.internalServerException);
           this.dispatchEvent(sessionId, 'error', {
             type: 'internalServerException',
-            details: event.internalServerException
+            details: typedEvent.internalServerException
           });
-        } else if (event.validationException) {
-          logger.error(`*** VALIDATION ERROR for session ${sessionId}: ***`, event.validationException);
+        } else if (typedEvent.validationException) {
+          logger.error(`*** VALIDATION ERROR for session ${sessionId}: ***`, typedEvent.validationException);
           this.dispatchEvent(sessionId, 'error', {
             type: 'validationException',
-            details: event.validationException
+            details: typedEvent.validationException
           });
         } else {
           // Log any other event types we might be missing
-          logger.info(`*** Unknown event type for session ${sessionId}: ***`, Object.keys(event));
-          logger.info(`*** Event details: ***`, event);
+          logger.info(`*** Unknown event type for session ${sessionId}: ***`, Object.keys(typedEvent || {}));
+          logger.info(`*** Event details: ***`, typedEvent);
         }
       }
 

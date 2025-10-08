@@ -4,10 +4,17 @@
  * Handles session lifecycle, cleanup, and state management
  */
 
+// Node.js built-ins
 import { randomUUID } from "node:crypto";
+
+// External packages
 import { Subject } from 'rxjs';
+
+// Internal modules - observability
+import logger from '../observability/logger';
+
+// Internal modules - types
 import { InferenceConfig } from "../types/SharedTypes";
-import logger from '../utils/logger';
 
 export interface SessionData {
   queue: Array<any>;

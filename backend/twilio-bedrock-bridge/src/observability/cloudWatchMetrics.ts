@@ -1,12 +1,22 @@
 /**
- * CloudWatch Metrics Service
+ * Optimized CloudWatch Metrics Service
  * 
- * High-level service for sending application metrics to CloudWatch
- * using the batched approach for optimal performance.
+ * High-performance service for sending application metrics to CloudWatch
+ * with lazy loading, batching optimization, and performance monitoring.
  */
 
-import { cloudWatchBatcher } from './cloudWatchBatcher';
-import logger from '../utils/logger';
+import logger from './logger';
+
+// Lazy-loaded batcher for better startup performance
+let cloudWatchBatcher: any = null;
+
+function getBatcher() {
+  if (!cloudWatchBatcher) {
+    const { cloudWatchBatcher: batcher } = require('./cloudWatchBatcher');
+    cloudWatchBatcher = batcher;
+  }
+  return cloudWatchBatcher;
+}
 
 export interface MetricDimensions {
   [key: string]: string;
@@ -127,23 +137,43 @@ export class CloudWatchMetricsService {
    * Manually flush the current batch
    */
   static async flush(): Promise<void> {
-    await cloudWatchBatcher.flush();
+    const batcher = getBatcher();
+    await batcher.flush();
   }
 
   /**
-   * Get current batch status
+   * Get comprehensive batch status with performance metrics
    */
   static getBatchStatus(): {
     batchSize: number;
     isHealthy: boolean;
     config: any;
+    performance: any;
   } {
-    const health = cloudWatchBatcher.getHealthStatus();
+    const batcher = getBatcher();
+    const health = batcher.getHealthStatus();
     return {
       batchSize: health.batchSize,
       isHealthy: health.isHealthy,
-      config: health.config
+      config: health.config,
+      performance: health.performance
     };
+  }
+
+  /**
+   * Get detailed performance metrics for observability overhead monitoring
+   */
+  static getPerformanceMetrics(): {
+    batchingOverheadMs: number;
+    networkOverheadMs: number;
+    totalOverheadMs: number;
+    throughputMetricsPerSecond: number;
+    averageLatencyMs: number;
+    successRate: number;
+    adaptiveBatchSize: number;
+  } {
+    const batcher = getBatcher();
+    return batcher.getPerformanceMetrics();
   }
 
   /**
@@ -228,7 +258,7 @@ export class CloudWatchMetricsService {
   }
 
   /**
-   * Helper method to add a metric to the batch
+   * Optimized metric addition with minimal overhead
    */
   private static addMetric(
     metricName: string,
@@ -237,7 +267,9 @@ export class CloudWatchMetricsService {
     dimensions?: MetricDimensions,
     timestamp?: Date
   ): void {
-    cloudWatchBatcher.addMetric({
+    const batcher = getBatcher();
+    
+    batcher.addMetric({
       metricName,
       value,
       unit,
@@ -245,13 +277,16 @@ export class CloudWatchMetricsService {
       timestamp
     });
 
-    logger.debug('Added metric to CloudWatch batch', {
-      metricName,
-      value,
-      unit,
-      dimensions,
-      batchSize: cloudWatchBatcher.getBatchSize()
-    });
+    // Only log in debug mode to reduce overhead
+    if (logger.isLevelEnabled && logger.isLevelEnabled('DEBUG')) {
+      logger.debug('Metric added to batch', {
+        metricName,
+        value,
+        unit,
+        batchSize: batcher.getBatchSize(),
+        component: 'cloudwatch_metrics'
+      });
+    }
   }
 
   /**

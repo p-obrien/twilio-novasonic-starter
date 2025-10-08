@@ -204,20 +204,22 @@ export const currentEnvironment = detectEnvironment();
 export const otelConfig = getOTELConfig();
 export const otelCapabilities = getOTELCapabilities();
 
-// Log environment detection on module load
-console.log(`Environment detected: ${currentEnvironment.platform}`, {
-  isECS: currentEnvironment.isECS,
-  isFargate: currentEnvironment.isFargate,
-  isKubernetes: currentEnvironment.isKubernetes,
-  isEKS: currentEnvironment.isEKS,
-  isContainer: currentEnvironment.isContainer,
-  region: currentEnvironment.region,
-  ...(currentEnvironment.isKubernetes && {
-    namespace: currentEnvironment.namespace,
-    podName: currentEnvironment.podName,
-    clusterName: currentEnvironment.clusterName
-  })
-});
+// Log environment detection on module load (skip in test environment)
+if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
+  console.log(`Environment detected: ${currentEnvironment.platform}`, {
+    isECS: currentEnvironment.isECS,
+    isFargate: currentEnvironment.isFargate,
+    isKubernetes: currentEnvironment.isKubernetes,
+    isEKS: currentEnvironment.isEKS,
+    isContainer: currentEnvironment.isContainer,
+    region: currentEnvironment.region,
+    ...(currentEnvironment.isKubernetes && {
+      namespace: currentEnvironment.namespace,
+      podName: currentEnvironment.podName,
+      clusterName: currentEnvironment.clusterName
+    })
+  });
+}
 
 if (otelCapabilities.recommendsFallback) {
   console.log('OTEL fallback mode recommended for this environment');

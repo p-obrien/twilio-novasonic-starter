@@ -13,7 +13,7 @@
 
 import { metricsUtils } from '../observability/metrics';
 import { CloudWatchMetrics } from '../observability/cloudWatchMetrics';
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 
 export interface AudioQualityMetrics {
     // Signal Quality
@@ -49,10 +49,13 @@ export class AudioQualityAnalyzer {
 
     private constructor() {
         // Periodic cleanup and reporting
-        setInterval(() => {
-            this.cleanupInactiveSessions();
-            this.reportAggregateMetrics();
-        }, 30000); // Every 30 seconds
+        // Disable background timers during tests to avoid async work after Jest teardown.
+        if (process.env.NODE_ENV !== 'test') {
+            setInterval(() => {
+                this.cleanupInactiveSessions();
+                this.reportAggregateMetrics();
+            }, 30000); // Every 30 seconds
+        }
     }
 
     public static getInstance(): AudioQualityAnalyzer {
@@ -193,64 +196,84 @@ export class AudioQualityAnalyzer {
         metrics: AudioQualityMetrics,
         callSid?: string
     ): void {
-        // Record to OTEL metrics
-        metricsUtils.recordAudioProcessing(
-            operation,
-            metrics.processingLatencyMs / 1000,
-            0, // chunk size recorded separately
-            undefined,
-            callSid
-        );
-
-        // Record additional quality metrics
+        // Safely record to OTEL / fallback metrics if available
+        try {
+            if (typeof metricsUtils !== 'undefined' && metricsUtils && typeof metricsUtils.recordAudioProcessing === 'function') {
+                metricsUtils.recordAudioProcessing(
+                    operation,
+                    metrics.processingLatencyMs / 1000,
+                    0, // chunk size recorded separately
+                    undefined,
+                    callSid
+                );
+            }
+        } catch (err) {
+            logger.debug('Failed to record audio processing metric', { sessionId, error: err instanceof Error ? err.message : String(err) });
+        }
+    
+        // Record additional quality metrics (guarded to avoid crashes in tests)
         const labels = {
             session_id: sessionId,
             operation,
             call_sid: callSid || 'unknown'
         };
-
+    
+        const safeRecordCustom = (name: string, value: number | string) => {
+            try {
+                if (typeof metricsUtils !== 'undefined' && metricsUtils && typeof metricsUtils.recordCustomMetric === 'function') {
+                    metricsUtils.recordCustomMetric(name, typeof value === 'number' ? value : Number(value), labels);
+                }
+            } catch (err) {
+                logger.debug('Failed to record custom metric', { metric: name, error: err instanceof Error ? err.message : String(err) });
+            }
+        };
+    
         // Signal quality metrics
-        metricsUtils.recordCustomMetric('audio_rms_level', metrics.rmsLevel, labels);
-        metricsUtils.recordCustomMetric('audio_peak_level', metrics.peakLevel, labels);
-        metricsUtils.recordCustomMetric('audio_silence_ratio', metrics.silenceRatio, labels);
-        metricsUtils.recordCustomMetric('audio_dynamic_range_db', metrics.dynamicRange, labels);
-
+        safeRecordCustom('audio_rms_level', metrics.rmsLevel);
+        safeRecordCustom('audio_peak_level', metrics.peakLevel);
+        safeRecordCustom('audio_silence_ratio', metrics.silenceRatio);
+        safeRecordCustom('audio_dynamic_range_db', metrics.dynamicRange);
+    
         // Buffer health metrics
-        metricsUtils.recordCustomMetric('audio_buffer_underruns', metrics.bufferUnderruns, labels);
-        metricsUtils.recordCustomMetric('audio_buffer_overruns', metrics.bufferOverruns, labels);
-        metricsUtils.recordCustomMetric('audio_buffer_level', metrics.averageBufferLevel, labels);
-        metricsUtils.recordCustomMetric('audio_jitter_ms', metrics.jitterMs, labels);
-
+        safeRecordCustom('audio_buffer_underruns', metrics.bufferUnderruns);
+        safeRecordCustom('audio_buffer_overruns', metrics.bufferOverruns);
+        safeRecordCustom('audio_buffer_level', metrics.averageBufferLevel);
+        safeRecordCustom('audio_jitter_ms', metrics.jitterMs);
+    
         // Processing quality metrics
-        metricsUtils.recordCustomMetric('audio_processing_latency_ms', metrics.processingLatencyMs, labels);
-        metricsUtils.recordCustomMetric('audio_conversion_errors', metrics.conversionErrors, labels);
-        metricsUtils.recordCustomMetric('audio_sample_rate_accuracy', metrics.sampleRateAccuracy, labels);
-
+        safeRecordCustom('audio_processing_latency_ms', metrics.processingLatencyMs);
+        safeRecordCustom('audio_conversion_errors', metrics.conversionErrors);
+        safeRecordCustom('audio_sample_rate_accuracy', metrics.sampleRateAccuracy);
+    
         // Performance metrics
-        metricsUtils.recordCustomMetric('audio_throughput_bytes_per_sec', metrics.throughputBytesPerSec, labels);
-        metricsUtils.recordCustomMetric('audio_cpu_usage_percent', metrics.cpuUsagePercent, labels);
-
-        // Send comprehensive audio quality metrics to CloudWatch
-        CloudWatchMetrics.audioQuality(
-            sessionId,
-            operation,
-            metrics.rmsLevel,
-            metrics.peakLevel,
-            metrics.silenceRatio,
-            metrics.dynamicRange,
-            metrics.bufferUnderruns,
-            metrics.bufferOverruns,
-            metrics.jitterMs,
-            metrics.processingLatencyMs,
-            metrics.throughputBytesPerSec,
-            callSid
-        );
-
+        safeRecordCustom('audio_throughput_bytes_per_sec', metrics.throughputBytesPerSec);
+        safeRecordCustom('audio_cpu_usage_percent', metrics.cpuUsagePercent);
+    
+        // Send comprehensive audio quality metrics to CloudWatch (safe invocation)
+        try {
+            CloudWatchMetrics.audioQuality(
+                sessionId,
+                operation,
+                metrics.rmsLevel,
+                metrics.peakLevel,
+                metrics.silenceRatio,
+                metrics.dynamicRange,
+                metrics.bufferUnderruns,
+                metrics.bufferOverruns,
+                metrics.jitterMs,
+                metrics.processingLatencyMs,
+                metrics.throughputBytesPerSec,
+                callSid
+            );
+        } catch (err) {
+            logger.debug('Failed to send CloudWatch audio quality metrics', { sessionId, error: err instanceof Error ? err.message : String(err) });
+        }
+    
         // Log significant quality issues
         if (metrics.silenceRatio > 0.8) {
             logger.warn('High silence ratio detected', { sessionId, silenceRatio: metrics.silenceRatio });
         }
-
+    
         if (metrics.bufferUnderruns > 0 || metrics.bufferOverruns > 0) {
             logger.warn('Buffer issues detected', {
                 sessionId,
@@ -258,7 +281,7 @@ export class AudioQualityAnalyzer {
                 overruns: metrics.bufferOverruns
             });
         }
-
+    
         if (metrics.processingLatencyMs > 100) {
             logger.warn('High processing latency detected', {
                 sessionId,
@@ -325,13 +348,13 @@ export class AudioQualityAnalyzer {
      */
     private reportAggregateMetrics(): void {
         if (this.sessionMetrics.size === 0) return;
-
+    
         let totalSessions = 0;
         let totalUnderruns = 0;
         let totalOverruns = 0;
         let avgLatency = 0;
         let avgThroughput = 0;
-
+    
         for (const metrics of this.sessionMetrics.values()) {
             totalSessions++;
             totalUnderruns += metrics.bufferUnderruns;
@@ -339,17 +362,27 @@ export class AudioQualityAnalyzer {
             avgLatency += metrics.getAverageLatency();
             avgThroughput += metrics.getThroughput();
         }
-
+    
         avgLatency /= totalSessions;
         avgThroughput /= totalSessions;
-
-        // Record aggregate metrics
-        metricsUtils.recordCustomMetric('audio_active_sessions', totalSessions, {});
-        metricsUtils.recordCustomMetric('audio_total_underruns', totalUnderruns, {});
-        metricsUtils.recordCustomMetric('audio_total_overruns', totalOverruns, {});
-        metricsUtils.recordCustomMetric('audio_avg_latency_ms', avgLatency, {});
-        metricsUtils.recordCustomMetric('audio_avg_throughput_bytes_per_sec', avgThroughput, {});
-
+    
+        // Safely record aggregate metrics
+        const safeRecord = (name: string, value: number) => {
+            try {
+                if (typeof metricsUtils !== 'undefined' && metricsUtils && typeof metricsUtils.recordCustomMetric === 'function') {
+                    metricsUtils.recordCustomMetric(name, value, {});
+                }
+            } catch (err) {
+                logger.debug('Failed to record aggregate metric', { metric: name, error: err instanceof Error ? err.message : String(err) });
+            }
+        };
+    
+        safeRecord('audio_active_sessions', totalSessions);
+        safeRecord('audio_total_underruns', totalUnderruns);
+        safeRecord('audio_total_overruns', totalOverruns);
+        safeRecord('audio_avg_latency_ms', avgLatency);
+        safeRecord('audio_avg_throughput_bytes_per_sec', avgThroughput);
+    
         logger.debug('Audio quality aggregate metrics', {
             activeSessions: totalSessions,
             totalUnderruns,

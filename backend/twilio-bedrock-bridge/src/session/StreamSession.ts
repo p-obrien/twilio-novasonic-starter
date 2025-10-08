@@ -4,22 +4,34 @@
  * Provides a high-level interface for managing individual streaming sessions
  */
 
+// Node.js built-ins
 import { Buffer } from "node:buffer";
-import logger from '../utils/logger';
+
+// Internal modules - config
 import { CLIENT_DEFAULTS } from '../config/ClientConfig';
+
+// Internal modules - errors
 import { 
   AudioProcessingError, 
   SessionInactiveError, 
   SessionError,
   extractErrorDetails 
 } from '../errors/ClientErrors';
+
+// Internal modules - observability
+import logger from '../observability/logger';
+
+// Internal modules - types
 import { EventHandler, AudioStreamOptions, StreamEventType } from '../types/ClientTypes';
+
+// Internal modules - utils
 import { CorrelationIdManager } from '../utils/correlationId';
 import {
   DefaultAudioInputConfiguration,
   DefaultTextConfiguration,
   DefaultSystemPrompt,
-  BufferSizeConfig
+  BufferSizeConfig,
+  MemoryThresholds
 } from "../utils/constants";
 
 /**
@@ -60,10 +72,10 @@ export class StreamSession {
   private audioBufferQueue: Buffer[] = [];
   private isProcessingAudio = false;
   private isActive = true;
-  private readonly maxQueueSize: number;
-  private readonly maxChunksPerBatch: number;
-  private readonly processingTimeoutMs: number;
-  private readonly dropOldestOnFull: boolean;
+  private maxQueueSize!: number;
+  private maxChunksPerBatch!: number;
+  private processingTimeoutMs!: number;
+  private dropOldestOnFull!: boolean;
   
   // Real-time conversation state
   private realtimeMode = false;
@@ -72,7 +84,11 @@ export class StreamSession {
   
   // Performance optimization state
   private processingTimeoutHandle?: NodeJS.Timeout;
-  private memoryPressureThreshold: number;
+  private memoryPressureThreshold!: number;
+  
+  // Buffer audio output (model -> client) and related helpers
+  private audioOutputBuffer: Buffer[] = [];
+  private maxOutputBufferSize!: number;
 
   constructor(
     private readonly sessionId: string,
@@ -80,69 +96,144 @@ export class StreamSession {
     audioOptions: AudioStreamOptions = {}
   ) {
     try {
-      // Validate required parameters
-      if (!sessionId || typeof sessionId !== 'string') {
-        throw new SessionError('Session ID must be a non-empty string');
-      }
-      if (!client) {
-        throw new SessionError('Client interface is required', sessionId);
-      }
-
-      this.maxQueueSize = audioOptions.maxQueueSize ?? CLIENT_DEFAULTS.MAX_AUDIO_QUEUE_SIZE;
-      this.maxChunksPerBatch = audioOptions.maxChunksPerBatch ?? CLIENT_DEFAULTS.MAX_CHUNKS_PER_BATCH;
-      this.maxOutputBufferSize = audioOptions.maxOutputBufferSize ?? CLIENT_DEFAULTS.MAX_AUDIO_QUEUE_SIZE;
-      this.processingTimeoutMs = audioOptions.processingTimeoutMs ?? BufferSizeConfig.PROCESSING_TIMEOUT_MS;
-      this.dropOldestOnFull = audioOptions.dropOldestOnFull ?? true;
-      
-      // Memory pressure threshold (80% of combined buffer capacity)
-      this.memoryPressureThreshold = Math.floor((this.maxQueueSize + this.maxOutputBufferSize) * 0.8);
-      
-      // Validate configuration values
-      if (this.maxQueueSize <= 0 || this.maxChunksPerBatch <= 0 || this.maxOutputBufferSize <= 0) {
-        throw new SessionError('Buffer size configurations must be positive integers', sessionId);
-      }
-      
-      // Initialize correlation context for this session
-      const parentContext = CorrelationIdManager.getCurrentContext();
-      const sessionContext = CorrelationIdManager.createBedrockContext(sessionId, parentContext);
-      CorrelationIdManager.setContext(sessionContext);
-      
-      logger.info(`StreamSession created successfully`, {
-        sessionId,
-        maxQueueSize: this.maxQueueSize,
-        maxChunksPerBatch: this.maxChunksPerBatch,
-        maxOutputBufferSize: this.maxOutputBufferSize,
-        correlationId: sessionContext.correlationId
-      });
+      this.validateConstructorParameters(sessionId, client);
+      this.initializeConfiguration(audioOptions);
+      this.validateConfiguration();
+      this.initializeCorrelationContext();
+      this.logSuccessfulCreation();
     } catch (error) {
-      logger.error(`Failed to create StreamSession`, {
-        sessionId,
-        error: extractErrorDetails(error),
-        correlationId: CorrelationIdManager.getCurrentCorrelationId()
-      });
+      this.logConstructorError(error);
       throw error;
     }
   }
 
   /**
-   * Gets the session ID
+   * Validates constructor parameters
+   */
+  private validateConstructorParameters(sessionId: string, client: StreamClientInterface): void {
+    if (!sessionId || typeof sessionId !== 'string') {
+      throw new SessionError('Session ID must be a non-empty string', 'unknown');
+    }
+    if (!client) {
+      throw new SessionError('Client interface is required', sessionId);
+    }
+  }
+
+  /**
+   * Initializes session configuration from options
+   */
+  private initializeConfiguration(audioOptions: AudioStreamOptions): void {
+    this.maxQueueSize = audioOptions.maxQueueSize ?? CLIENT_DEFAULTS.MAX_AUDIO_QUEUE_SIZE;
+    this.maxChunksPerBatch = audioOptions.maxChunksPerBatch ?? CLIENT_DEFAULTS.MAX_CHUNKS_PER_BATCH;
+    this.maxOutputBufferSize = audioOptions.maxOutputBufferSize ?? CLIENT_DEFAULTS.MAX_AUDIO_QUEUE_SIZE;
+    this.processingTimeoutMs = audioOptions.processingTimeoutMs ?? BufferSizeConfig.PROCESSING_TIMEOUT_MS;
+    this.dropOldestOnFull = audioOptions.dropOldestOnFull ?? true;
+    
+    // Memory pressure threshold (80% of combined buffer capacity)
+    this.memoryPressureThreshold = Math.floor((this.maxQueueSize + this.maxOutputBufferSize) * MemoryThresholds.PRESSURE_THRESHOLD);
+  }
+
+  /**
+   * Validates configuration values
+   */
+  private validateConfiguration(): void {
+    if (this.maxQueueSize <= 0 || this.maxChunksPerBatch <= 0 || this.maxOutputBufferSize <= 0) {
+      throw new SessionError('Buffer size configurations must be positive integers', this.sessionId);
+    }
+  }
+
+  /**
+   * Initializes correlation context for the session
+   */
+  private initializeCorrelationContext(): void {
+    const parentContext = CorrelationIdManager.getCurrentContext();
+    const sessionContext = CorrelationIdManager.createBedrockContext(this.sessionId, parentContext);
+    CorrelationIdManager.setContext(sessionContext);
+  }
+
+  /**
+   * Logs successful session creation
+   */
+  private logSuccessfulCreation(): void {
+    logger.info(`StreamSession created successfully`, {
+      sessionId: this.sessionId,
+      maxQueueSize: this.maxQueueSize,
+      maxChunksPerBatch: this.maxChunksPerBatch,
+      maxOutputBufferSize: this.maxOutputBufferSize,
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
+  }
+
+  /**
+   * Logs constructor errors
+   */
+  private logConstructorError(error: unknown): void {
+    logger.error(`Failed to create StreamSession`, {
+      sessionId: this.sessionId,
+      error: extractErrorDetails(error),
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
+  }
+
+  /**
+   * Gets the unique identifier for this streaming session
+   * 
+   * @returns The session ID string that uniquely identifies this session
+   * @example
+   * ```typescript
+   * const sessionId = streamSession.getSessionId();
+   * console.log(`Current session: ${sessionId}`);
+   * ```
    */
   public getSessionId(): string {
     return this.sessionId;
   }
 
   /**
-   * Checks if the session is currently active
+   * Checks if the session is currently active and operational
+   * 
+   * A session is considered active if both the local session state and the
+   * underlying client session are active. This method performs a real-time
+   * check against the client to ensure session validity.
+   * 
+   * @returns True if the session is active and ready for operations, false otherwise
+   * @example
+   * ```typescript
+   * if (streamSession.isSessionActive()) {
+   *   await streamSession.streamAudio(audioBuffer);
+   * } else {
+   *   console.log('Session is inactive, cannot stream audio');
+   * }
+   * ```
    */
   public isSessionActive(): boolean {
     return this.isActive && this.client.isSessionActive(this.sessionId);
   }
 
   /**
-   * Registers an event handler for this session
-   * @param eventType - Type of event to listen for
-   * @param handler - Function to handle the event
+   * Registers an event handler for specific session events
+   * 
+   * This method allows you to listen for various events that occur during the
+   * session lifecycle, such as audio processing events, error events, or
+   * state change events. The handler will be called whenever the specified
+   * event type occurs for this session.
+   * 
+   * @param eventType - The type of event to listen for (e.g., 'audio_chunk', 'error', 'state_change')
+   * @param handler - The callback function to execute when the event occurs
    * @returns This session instance for method chaining
+   * 
+   * @throws {SessionError} If the session is inactive or parameters are invalid
+   * 
+   * @example
+   * ```typescript
+   * streamSession
+   *   .onEvent('audio_chunk', (data) => {
+   *     console.log('Received audio chunk:', data.length);
+   *   })
+   *   .onEvent('error', (error) => {
+   *     console.error('Session error:', error);
+   *   });
+   * ```
    */
   public onEvent(eventType: StreamEventType, handler: EventHandler): StreamSession {
     try {
@@ -277,8 +368,29 @@ export class StreamSession {
   }
 
   /**
-   * Streams audio data to the session
-   * @param audioData - Audio data buffer to stream
+   * Streams audio data to the session for processing
+   * 
+   * This method queues audio data for processing and transmission to the
+   * underlying client. The audio data is buffered and processed in batches
+   * to optimize performance and manage memory usage. The method handles
+   * buffer management, memory pressure detection, and graceful error handling.
+   * 
+   * @param audioData - Buffer containing audio data to stream (must be a valid Buffer)
+   * @returns Promise that resolves when the audio has been queued for processing
+   * 
+   * @throws {SessionInactiveError} If the session is not active
+   * @throws {AudioProcessingError} If the audio data is invalid or processing fails
+   * 
+   * @example
+   * ```typescript
+   * const audioBuffer = Buffer.from(audioData);
+   * try {
+   *   await streamSession.streamAudio(audioBuffer);
+   *   console.log('Audio queued successfully');
+   * } catch (error) {
+   *   console.error('Failed to stream audio:', error);
+   * }
+   * ```
    */
   public async streamAudio(audioData: Buffer): Promise<void> {
     return CorrelationIdManager.traceWithCorrelation('session.stream_audio', async () => {
@@ -404,10 +516,7 @@ export class StreamSession {
   public async close(): Promise<void> {
     return CorrelationIdManager.traceWithCorrelation('session.close', async () => {
       if (!this.isActive) {
-        logger.debug(`Session already closed`, {
-          sessionId: this.sessionId,
-          correlationId: CorrelationIdManager.getCurrentCorrelationId()
-        });
+        this.logSessionAlreadyClosed();
         return;
       }
 
@@ -415,55 +524,96 @@ export class StreamSession {
       const initialStats = this.getAudioQueueStats();
 
       try {
-        this.isActive = false;
-        
-        // Clear any pending timeouts to prevent memory leaks
-        if (this.processingTimeoutHandle) {
-          clearTimeout(this.processingTimeoutHandle);
-          this.processingTimeoutHandle = undefined;
-        }
-        
-        // Clear buffers and log cleanup stats
-        this.clearAudioQueue();
-        this.clearOutputBuffer();
-        
-        // Reset real-time state
-        this.realtimeMode = false;
-        this.userSpeaking = false;
-        this.lastUserActivity = undefined;
-        
-        // Reset processing state
-        this.isProcessingAudio = false;
-        
-        // Send session end to client
-        this.client.sendSessionEnd(this.sessionId);
-        
-        const duration = Date.now() - startTime;
-        logger.info(`Session closed successfully`, {
-          sessionId: this.sessionId,
-          duration: `${duration}ms`,
-          finalStats: {
-            inputQueueCleared: initialStats.queueLength,
-            outputBufferCleared: initialStats.outputBufferLength,
-            wasProcessing: initialStats.isProcessing
-          },
-          correlationId: CorrelationIdManager.getCurrentCorrelationId()
-        });
+        await this.performSessionCleanup();
+        this.logSuccessfulClose(startTime, initialStats);
       } catch (error) {
-        const duration = Date.now() - startTime;
-        logger.error(`Error closing session`, {
-          sessionId: this.sessionId,
-          duration: `${duration}ms`,
-          initialStats,
-          error: extractErrorDetails(error),
-          correlationId: CorrelationIdManager.getCurrentCorrelationId()
-        });
-        
-        // Ensure session is marked as inactive even if cleanup fails
-        this.isActive = false;
+        this.handleCloseError(error, startTime, initialStats);
         throw new SessionError('Failed to close session cleanly', this.sessionId, error as Error);
       }
     }, { 'session.id': this.sessionId });
+  }
+
+  /**
+   * Logs when session is already closed
+   */
+  private logSessionAlreadyClosed(): void {
+    logger.debug(`Session already closed`, {
+      sessionId: this.sessionId,
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
+  }
+
+  /**
+   * Performs the actual session cleanup operations
+   */
+  private async performSessionCleanup(): Promise<void> {
+    this.isActive = false;
+    this.clearPendingTimeouts();
+    this.clearAllBuffers();
+    this.resetSessionState();
+    this.client.sendSessionEnd(this.sessionId);
+  }
+
+  /**
+   * Clears any pending timeouts to prevent memory leaks
+   */
+  private clearPendingTimeouts(): void {
+    if (this.processingTimeoutHandle) {
+      clearTimeout(this.processingTimeoutHandle);
+      this.processingTimeoutHandle = undefined;
+    }
+  }
+
+  /**
+   * Clears all audio buffers
+   */
+  private clearAllBuffers(): void {
+    this.clearAudioQueue();
+    this.clearOutputBuffer();
+  }
+
+  /**
+   * Resets session state variables
+   */
+  private resetSessionState(): void {
+    this.realtimeMode = false;
+    this.userSpeaking = false;
+    this.lastUserActivity = undefined;
+    this.isProcessingAudio = false;
+  }
+
+  /**
+   * Logs successful session closure
+   */
+  private logSuccessfulClose(startTime: number, initialStats: any): void {
+    const duration = Date.now() - startTime;
+    logger.info(`Session closed successfully`, {
+      sessionId: this.sessionId,
+      duration: `${duration}ms`,
+      finalStats: {
+        inputQueueCleared: initialStats.queueLength,
+        outputBufferCleared: initialStats.outputBufferLength,
+        wasProcessing: initialStats.isProcessing
+      },
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
+  }
+
+  /**
+   * Handles errors during session closure
+   */
+  private handleCloseError(error: unknown, startTime: number, initialStats: any): void {
+    const duration = Date.now() - startTime;
+    logger.error(`Error closing session`, {
+      sessionId: this.sessionId,
+      duration: `${duration}ms`,
+      initialStats,
+      error: extractErrorDetails(error),
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
+    
+    // Ensure session is marked as inactive even if cleanup fails
+    this.isActive = false;
   }
 
   /**
@@ -738,44 +888,79 @@ export class StreamSession {
       const memoryStats = this.getMemoryStats();
       
       if (memoryStats.memoryPressure) {
-        const inputTrimTarget = Math.floor(this.maxQueueSize * 0.5);
-        const outputTrimTarget = Math.floor(this.maxOutputBufferSize * 0.5);
-        
-        let trimmedInput = 0;
-        let trimmedOutput = 0;
-        
-        // Trim input buffer if over target
-        if (this.audioBufferQueue.length > inputTrimTarget) {
-          const toRemove = this.audioBufferQueue.length - inputTrimTarget;
-          this.audioBufferQueue.splice(0, toRemove);
-          trimmedInput = toRemove;
-        }
-        
-        // Trim output buffer if over target
-        if (this.audioOutputBuffer.length > outputTrimTarget) {
-          const toRemove = this.audioOutputBuffer.length - outputTrimTarget;
-          this.audioOutputBuffer.splice(0, toRemove);
-          trimmedOutput = toRemove;
-        }
-        
-        if (trimmedInput > 0 || trimmedOutput > 0) {
-          logger.info(`Memory optimization applied due to pressure`, {
-            sessionId: this.sessionId,
-            trimmedInputChunks: trimmedInput,
-            trimmedOutputChunks: trimmedOutput,
-            beforeUtilization: memoryStats.utilizationPercent,
-            afterUtilization: this.getMemoryStats().utilizationPercent,
-            correlationId: CorrelationIdManager.getCurrentCorrelationId()
-          });
-        }
+        const trimResults = this.performMemoryTrimming();
+        this.logMemoryOptimization(trimResults, memoryStats.utilizationPercent);
       }
     } catch (error) {
-      logger.error(`Error during memory optimization`, {
+      this.logMemoryOptimizationError(error);
+    }
+  }
+
+  /**
+   * Performs memory trimming on both input and output buffers
+   */
+  private performMemoryTrimming(): { trimmedInput: number; trimmedOutput: number } {
+    const inputTrimTarget = Math.floor(this.maxQueueSize * MemoryThresholds.TRIM_TARGET);
+    const outputTrimTarget = Math.floor(this.maxOutputBufferSize * MemoryThresholds.TRIM_TARGET);
+    
+    const trimmedInput = this.trimInputBuffer(inputTrimTarget);
+    const trimmedOutput = this.trimOutputBuffer(outputTrimTarget);
+    
+    return { trimmedInput, trimmedOutput };
+  }
+
+  /**
+   * Trims input buffer to target size
+   */
+  private trimInputBuffer(targetSize: number): number {
+    if (this.audioBufferQueue.length > targetSize) {
+      const toRemove = this.audioBufferQueue.length - targetSize;
+      this.audioBufferQueue.splice(0, toRemove);
+      return toRemove;
+    }
+    return 0;
+  }
+
+  /**
+   * Trims output buffer to target size
+   */
+  private trimOutputBuffer(targetSize: number): number {
+    if (this.audioOutputBuffer.length > targetSize) {
+      const toRemove = this.audioOutputBuffer.length - targetSize;
+      this.audioOutputBuffer.splice(0, toRemove);
+      return toRemove;
+    }
+    return 0;
+  }
+
+  /**
+   * Logs memory optimization results
+   */
+  private logMemoryOptimization(
+    trimResults: { trimmedInput: number; trimmedOutput: number },
+    beforeUtilization: number
+  ): void {
+    if (trimResults.trimmedInput > 0 || trimResults.trimmedOutput > 0) {
+      logger.info(`Memory optimization applied due to pressure`, {
         sessionId: this.sessionId,
-        error: extractErrorDetails(error),
+        trimmedInputChunks: trimResults.trimmedInput,
+        trimmedOutputChunks: trimResults.trimmedOutput,
+        beforeUtilization,
+        afterUtilization: this.getMemoryStats().utilizationPercent,
         correlationId: CorrelationIdManager.getCurrentCorrelationId()
       });
     }
+  }
+
+  /**
+   * Logs memory optimization errors
+   */
+  private logMemoryOptimizationError(error: unknown): void {
+    logger.error(`Error during memory optimization`, {
+      sessionId: this.sessionId,
+      error: extractErrorDetails(error),
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
   }
 
   /**
@@ -842,11 +1027,7 @@ export class StreamSession {
     });
   }
 
-  /**
-   * Buffer audio output (model -> client) and related helpers
-   */
-  private audioOutputBuffer: Buffer[] = [];
-  private readonly maxOutputBufferSize: number;
+
 
   /**
    * Buffer model audio output (Nova Sonic can generate faster than real-time)
@@ -987,7 +1168,7 @@ export class StreamSession {
       }
 
       // Log warning for large buffers (model generating faster than real-time)
-      const warningThreshold = Math.floor(this.maxOutputBufferSize * 0.8);
+      const warningThreshold = Math.floor(this.maxOutputBufferSize * MemoryThresholds.OUTPUT_WARNING);
       if (currentSize >= warningThreshold && currentSize < this.maxOutputBufferSize) {
         logger.debug(`Large output buffer detected - model generating faster than real-time`, {
           sessionId: this.sessionId,
@@ -1016,66 +1197,102 @@ export class StreamSession {
       const currentSize = this.audioBufferQueue.length;
       
       if (currentSize >= maxSize) {
-        if (trimToSize && trimToSize < maxSize) {
-          // Aggressive trimming for real-time mode - remove multiple chunks at once
-          const chunksToRemove = currentSize - trimToSize;
-          const removedChunks = this.audioBufferQueue.splice(0, chunksToRemove);
-          
-          logger.warn(`Audio input queue capacity exceeded, aggressive trimming applied`, {
-            sessionId: this.sessionId,
-            originalSize: currentSize,
-            maxSize,
-            trimToSize,
-            chunksRemoved: chunksToRemove,
-            totalBytesRemoved: removedChunks.reduce((sum, chunk) => sum + chunk.length, 0),
-            correlationId: CorrelationIdManager.getCurrentCorrelationId()
-          });
-        } else if (this.dropOldestOnFull) {
-          // Standard behavior - drop oldest chunk
-          const droppedChunk = this.audioBufferQueue.shift();
-          
-          logger.warn(`Audio input queue capacity exceeded, dropping oldest chunk`, {
-            sessionId: this.sessionId,
-            queueSize: currentSize,
-            maxSize,
-            droppedChunkSize: droppedChunk?.length || 0,
-            correlationId: CorrelationIdManager.getCurrentCorrelationId()
-          });
-        } else {
-          // Alternative strategy - drop newest chunk (current one won't be added)
-          logger.warn(`Audio input queue capacity exceeded, dropping newest chunk`, {
-            sessionId: this.sessionId,
-            queueSize: currentSize,
-            maxSize,
-            strategy: 'drop_newest',
-            correlationId: CorrelationIdManager.getCurrentCorrelationId()
-          });
-          return; // Don't add the current chunk
-        }
-      }
-      
-      // Log warning for high buffer utilization
-      const warningThreshold = Math.floor(maxSize * 0.7);
-      if (currentSize >= warningThreshold && currentSize < maxSize) {
-        logger.debug(`High input buffer utilization detected`, {
-          sessionId: this.sessionId,
-          queueSize: currentSize,
-          maxSize,
-          utilizationPercent: Math.round((currentSize / maxSize) * 100),
-          correlationId: CorrelationIdManager.getCurrentCorrelationId()
-        });
+        this.handleBufferCapacityExceeded(currentSize, maxSize, trimToSize);
+      } else {
+        this.checkBufferUtilizationWarning(currentSize, maxSize);
       }
     } catch (error) {
-      logger.error(`Error managing input buffer size`, {
+      this.logBufferManagementError(error, maxSize, trimToSize);
+    }
+  }
+
+  /**
+   * Handles buffer capacity exceeded scenarios
+   */
+  private handleBufferCapacityExceeded(currentSize: number, maxSize: number, trimToSize?: number): void {
+    if (trimToSize && trimToSize < maxSize) {
+      this.performAggressiveTrimming(currentSize, maxSize, trimToSize);
+    } else if (this.dropOldestOnFull) {
+      this.dropOldestChunk(currentSize, maxSize);
+    } else {
+      this.logDropNewestStrategy(currentSize, maxSize);
+    }
+  }
+
+  /**
+   * Performs aggressive trimming for real-time mode
+   */
+  private performAggressiveTrimming(currentSize: number, maxSize: number, trimToSize: number): void {
+    const chunksToRemove = currentSize - trimToSize;
+    const removedChunks = this.audioBufferQueue.splice(0, chunksToRemove);
+    
+    logger.warn(`Audio input queue capacity exceeded, aggressive trimming applied`, {
+      sessionId: this.sessionId,
+      originalSize: currentSize,
+      maxSize,
+      trimToSize,
+      chunksRemoved: chunksToRemove,
+      totalBytesRemoved: removedChunks.reduce((sum, chunk) => sum + chunk.length, 0),
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
+  }
+
+  /**
+   * Drops the oldest chunk from the buffer
+   */
+  private dropOldestChunk(currentSize: number, maxSize: number): void {
+    const droppedChunk = this.audioBufferQueue.shift();
+    
+    logger.warn(`Audio input queue capacity exceeded, dropping oldest chunk`, {
+      sessionId: this.sessionId,
+      queueSize: currentSize,
+      maxSize,
+      droppedChunkSize: droppedChunk?.length || 0,
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
+  }
+
+  /**
+   * Logs drop newest strategy
+   */
+  private logDropNewestStrategy(currentSize: number, maxSize: number): void {
+    logger.warn(`Audio input queue capacity exceeded, dropping newest chunk`, {
+      sessionId: this.sessionId,
+      queueSize: currentSize,
+      maxSize,
+      strategy: 'drop_newest',
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
+  }
+
+  /**
+   * Checks and logs buffer utilization warnings
+   */
+  private checkBufferUtilizationWarning(currentSize: number, maxSize: number): void {
+    const warningThreshold = Math.floor(maxSize * MemoryThresholds.WARNING_THRESHOLD);
+    if (currentSize >= warningThreshold) {
+      logger.debug(`High input buffer utilization detected`, {
         sessionId: this.sessionId,
-        queueLength: this.audioBufferQueue.length,
+        queueSize: currentSize,
         maxSize,
-        trimToSize,
-        error: extractErrorDetails(error),
+        utilizationPercent: Math.round((currentSize / maxSize) * 100),
         correlationId: CorrelationIdManager.getCurrentCorrelationId()
       });
-      // Continue execution - buffer management errors shouldn't break audio processing
     }
+  }
+
+  /**
+   * Logs buffer management errors
+   */
+  private logBufferManagementError(error: unknown, maxSize: number, trimToSize?: number): void {
+    logger.error(`Error managing input buffer size`, {
+      sessionId: this.sessionId,
+      queueLength: this.audioBufferQueue.length,
+      maxSize,
+      trimToSize,
+      error: extractErrorDetails(error),
+      correlationId: CorrelationIdManager.getCurrentCorrelationId()
+    });
   }
 
   /**

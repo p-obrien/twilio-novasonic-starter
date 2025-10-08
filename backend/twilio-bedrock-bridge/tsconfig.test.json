@@ -7,17 +7,33 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "downlevelIteration": true,
+    "resolveJsonModule": true,
     "typeRoots": ["./node_modules/@types", "./src/types"],
-    "rootDir": "."
+    "rootDir": ".",
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["*"],
+      "@tests/*": ["__tests__/*"]
+    },
+    // Optimizations for faster compilation
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo-test"
   },
   "include": [
     "src/**/*",
-    "src/__tests__/**/*",
-    "src/types/**/*",
-    "__tests__/**/*"
+    "src/__tests__/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist"
-  ]
+    "dist",
+    "coverage",
+    "src/__tests__/backup/**/*"
+  ],
+  "ts-node": {
+    "transpileOnly": true,
+    "compilerOptions": {
+      "module": "commonjs"
+    }
+  }
 }

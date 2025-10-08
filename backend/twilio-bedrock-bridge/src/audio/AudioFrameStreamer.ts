@@ -29,7 +29,7 @@
  * ```
  */
 
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 
 /**
  * Configuration options for audio frame streaming behavior.

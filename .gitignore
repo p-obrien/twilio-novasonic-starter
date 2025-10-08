@@ -339,6 +339,8 @@ cover/
 
 # Jest
 jest_coverage/
+.jest-cache/
+*/.jest-cache/
 
 # =============================================================================
 # BUILD ARTIFACTS

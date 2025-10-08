@@ -1,7 +1,7 @@
 import { metrics } from '@opentelemetry/api';
 import { CloudWatchMetrics } from './cloudWatchMetrics';
 import { isOtelAvailable, isFallbackMode, enableFallbackMode } from './tracing';
-import logger from '../utils/logger';
+import logger from './logger';
 
 // Safe meter initialization with fallback
 let meter: any = null;
@@ -21,14 +21,29 @@ function initializeMeter() {
 
 // Fallback meter that logs metrics instead of sending to OTEL
 function createFallbackMeter() {
-  const createFallbackInstrument = (type: string, name: string, options?: any) => ({
-    add: (value: number, attributes?: any) => {
-      logger.debug(`[FALLBACK-METRIC] ${type} ${name}: ${value}`, { attributes, options });
-    },
-    record: (value: number, attributes?: any) => {
-      logger.debug(`[FALLBACK-METRIC] ${type} ${name}: ${value}`, { attributes, options });
+  // When running tests, avoid emitting fallback metric logs. Jest will complain if
+  // console logging happens after tests finish (e.g. from async GC/PerfObserver callbacks).
+  const isTest = process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined';
+
+  const createFallbackInstrument = (type: string, name: string, options?: any) => {
+    if (isTest) {
+      // No-op in tests to prevent "Cannot log after tests are done" errors caused by
+      // asynchronous metric callbacks firing after Jest's teardown.
+      return {
+        add: (_value: number, _attributes?: any) => { /* noop during tests */ },
+        record: (_value: number, _attributes?: any) => { /* noop during tests */ }
+      };
     }
-  });
+
+    return {
+      add: (value: number, attributes?: any) => {
+        logger.debug(`[FALLBACK-METRIC] ${type} ${name}: ${value}`, { attributes, options });
+      },
+      record: (value: number, attributes?: any) => {
+        logger.debug(`[FALLBACK-METRIC] ${type} ${name}: ${value}`, { attributes, options });
+      }
+    };
+  };
 
   return {
     createCounter: (name: string, options?: any) => createFallbackInstrument('counter', name, options),

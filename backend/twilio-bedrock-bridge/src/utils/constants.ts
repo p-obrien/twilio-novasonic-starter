@@ -54,6 +54,29 @@ export const DefaultAudioOutputConfiguration = {
   voiceId: "tiffany",
 };
 
+// Audio sample rates (Hz)
+export const AudioSampleRates = {
+  TWILIO_MULAW: 8000,           // Twilio μ-law sample rate
+  BEDROCK_PCM: 16000,           // Bedrock PCM sample rate
+  BEDROCK_DEFAULT: 24000,       // Default Bedrock sample rate
+  MAX_SUPPORTED: 48000,         // Maximum supported sample rate
+} as const;
+
+// Memory management thresholds (percentages as decimals)
+export const MemoryThresholds = {
+  PRESSURE_THRESHOLD: 0.8,      // 80% - trigger memory pressure handling
+  TRIM_TARGET: 0.5,             // 50% - target size when trimming buffers
+  WARNING_THRESHOLD: 0.7,       // 70% - log warning for high utilization
+  OUTPUT_WARNING: 0.8,          // 80% - warn for output buffer utilization
+} as const;
+
+// Audio processing constants
+export const AudioProcessing = {
+  BYTES_PER_SAMPLE_16BIT: 2,    // 16-bit samples = 2 bytes
+  MIN_CHUNK_DURATION_MS: 10,    // Minimum chunk duration for processing
+  SILENCE_PADDING_VALUE: 0,     // Value for silent padding
+} as const;
+
 // Buffer size configurations for different scenarios
 export const BufferSizeConfig = {
   // Input audio buffering (user speech)
@@ -67,5 +90,5 @@ export const BufferSizeConfig = {
   
   // Processing batch sizes
   PROCESSING_BATCH_SIZE: 5,      // Max chunks to process per batch
-  PROCESSING_TIMEOUT_MS: 0,      // Timeout between processing batches
+  PROCESSING_TIMEOUT_MS: 30000,  // Timeout for processing operations (30 seconds)
 };

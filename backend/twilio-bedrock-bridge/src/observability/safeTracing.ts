@@ -5,7 +5,7 @@
 
 import { trace, Span, Tracer, SpanOptions, SpanStatusCode } from '@opentelemetry/api';
 import { isOtelAvailable, isFallbackMode, enableFallbackMode } from './tracing';
-import logger from '../utils/logger';
+import logger from './logger';
 
 // Fallback span implementation that does nothing but maintains the interface
 class FallbackSpan {

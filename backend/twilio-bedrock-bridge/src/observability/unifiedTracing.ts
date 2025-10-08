@@ -9,7 +9,7 @@ import { safeTrace } from './safeTracing';
 import { fargateXRayTracer, XRayTracing } from './xrayTracing';
 import { isOtelAvailable, getActiveTracer } from './tracing';
 import { smartSampler } from './smartSampling';
-import logger from '../utils/logger';
+import logger from './logger';
 
 export interface UnifiedSpan {
   setStatus(status: { code: number; message?: string }): void;

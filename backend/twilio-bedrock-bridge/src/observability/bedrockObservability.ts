@@ -7,7 +7,7 @@
  */
 
 import { trace, SpanStatusCode, SpanKind } from '@opentelemetry/api';
-import logger from '../utils/logger';
+import logger from './logger';
 import { applicationMetrics, metricsUtils } from './metrics';
 import { CloudWatchMetrics } from './cloudWatchMetrics';
 import { cloudWatchBatcher } from './cloudWatchBatcher';
