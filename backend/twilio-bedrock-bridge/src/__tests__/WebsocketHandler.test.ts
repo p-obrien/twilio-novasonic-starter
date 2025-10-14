@@ -4,6 +4,7 @@
 
 // Mock the client BEFORE importing anything else
 const mockBedrockClient = {
+  // Core streaming methods
   isSessionActive: jest.fn().mockReturnValue(false),
   createStreamSession: jest.fn(),
   initiateSession: jest.fn().mockResolvedValue(undefined),
@@ -15,11 +16,20 @@ const mockBedrockClient = {
   streamAudioChunk: jest.fn().mockResolvedValue(undefined),
   sendContentEnd: jest.fn(),
   sendPromptEnd: jest.fn(),
-  forceCloseSession: jest.fn()
+  forceCloseSession: jest.fn(),
+  // Orchestrator methods
+  isOrchestratorEnabled: jest.fn().mockReturnValue(false),
+  processTextInput: jest.fn().mockResolvedValue({ response: 'test response', source: 'conversation' }),
+  updateOrchestratorConfig: jest.fn(),
+  getOrchestratorConfig: jest.fn().mockReturnValue({}),
+  // Lifecycle methods
+  cleanup: jest.fn(),
+  shutdown: jest.fn()
 };
 
 jest.doMock('../client', () => ({
-  NovaSonicBidirectionalStreamClient: jest.fn().mockImplementation(() => mockBedrockClient)
+  NovaSonicClient: jest.fn().mockImplementation(() => mockBedrockClient),
+  createNovaSonicClient: jest.fn().mockImplementation(() => mockBedrockClient)
 }));
 
 // Mock other dependencies
@@ -38,7 +48,10 @@ jest.mock('../utils/correlationId', () => ({
     createWebSocketContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' }),
     runWithContext: jest.fn((context, fn) => fn()),
     setContext: jest.fn(),
-    getCurrentContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' })
+    getCurrentContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' }),
+    getCurrentCorrelationId: jest.fn().mockReturnValue('test-correlation-id'),
+    traceWithCorrelation: jest.fn((name, fn) => fn()),
+    createBedrockContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' })
   }
 }));
 

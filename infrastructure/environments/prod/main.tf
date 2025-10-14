@@ -4,6 +4,14 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -130,6 +138,58 @@ resource "aws_route53_record" "alb_alias" {
   depends_on = [module.alb]
 }
 
+# Bedrock Knowledge Base (optional)
+module "knowledge_base" {
+  count  = var.create_knowledge_base ? 1 : 0
+  source = "../../modules/bedrock-knowledge-base"
+
+  knowledge_base_name     = "${var.project_name}-${var.environment}-kb"
+  region                  = var.region
+  embedding_model_id      = var.knowledge_base_embedding_model_id
+  database_name          = var.knowledge_base_database_name
+  db_username            = var.knowledge_base_db_username
+  vector_table_name      = var.knowledge_base_vector_table_name
+  min_capacity           = var.knowledge_base_min_capacity
+  max_capacity           = var.knowledge_base_max_capacity
+  skip_final_snapshot    = var.knowledge_base_skip_final_snapshot
+  deletion_protection    = var.knowledge_base_deletion_protection
+  subnet_ids             = module.vpc.private_subnets
+  vpc_id                 = module.vpc.vpc_id
+  vpc_cidr_block         = var.vpc_cidr_block
+  s3_inclusion_prefixes  = var.knowledge_base_s3_inclusion_prefixes
+  chunking_strategy      = var.knowledge_base_chunking_strategy
+  max_tokens             = var.knowledge_base_max_tokens
+  overlap_percentage     = var.knowledge_base_overlap_percentage
+  auto_ingestion_prefix  = var.knowledge_base_auto_ingestion_prefix
+  
+  tags = local.common_tags
+}
+
+# Bedrock Agent (optional)
+module "agent" {
+  count  = var.create_agent ? 1 : 0
+  source = "../../modules/bedrock-agent"
+
+  agent_name                    = "${var.project_name}-${var.environment}-agent"
+  region                        = var.region
+  environment                   = var.environment
+  foundation_model_ids          = var.agent_foundation_model_ids
+  agent_instruction            = var.agent_instruction
+  agent_description            = var.agent_description
+  idle_session_ttl_in_seconds  = var.agent_idle_session_ttl_in_seconds
+  agent_alias_name             = var.agent_alias_name
+  knowledge_base_arns          = var.create_knowledge_base ? [module.knowledge_base[0].knowledge_base_arn] : var.external_knowledge_base_arns
+  action_groups                = var.agent_action_groups
+  prompt_override_configuration = var.agent_prompt_override_configuration
+  routing_configuration        = var.agent_routing_configuration
+  
+  tags = local.common_tags
+
+  depends_on = [
+    module.knowledge_base
+  ]
+}
+
 # ECS Cluster and Service
 module "ecs" {
   source = "../../modules/ecs"
@@ -158,11 +218,23 @@ module "ecs" {
   twilio_auth_token             = var.twilio_auth_token
   verify_twilio_signature       = var.verify_twilio_signature
   
+  # Knowledge Base and Agent configuration - use created resources or external ARNs
+  knowledge_base_arns           = concat(
+    var.create_knowledge_base ? [module.knowledge_base[0].knowledge_base_arn] : [],
+    var.external_knowledge_base_arns
+  )
+  agent_arns                    = concat(
+    var.create_agent ? [module.agent[0].agent_alias_arn] : [],
+    var.external_agent_arns
+  )
+  
   tags = local.common_tags
 
   depends_on = [
     module.ecr,
     module.vpc,
-    module.alb
+    module.alb,
+    module.knowledge_base,
+    module.agent
   ]
 }

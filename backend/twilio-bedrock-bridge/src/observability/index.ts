@@ -18,6 +18,30 @@ export {
   forceMemoryCleanup,
   getObservabilityMetrics 
 } from './initialization';
+export { 
+  IntegrationMetricsService, 
+  IntegrationMetrics,
+  KnowledgeBaseMetrics,
+  AgentInvocationMetrics,
+  IntentClassificationMetrics,
+  OrchestratorMetrics
+} from './integrationMetrics';
+export {
+  IntegrationErrorLoggerService,
+  IntegrationErrorLogger,
+  PerformanceMonitoringData,
+  ErrorContext,
+  IntegrationErrorLogEntry
+} from './integrationErrorLogger';
+export {
+  DataProtectionService,
+  DataProtection,
+  SensitiveDataPattern,
+  KnowledgeBaseAccessLog,
+  AgentExecutionAudit,
+  SanitizationResult,
+  DataProtectionConfig
+} from './dataProtection';
 
 // Re-export OpenTelemetry API for convenience (use safeTrace for safer operations)
 export { trace, context, SpanStatusCode, SpanKind } from '@opentelemetry/api';

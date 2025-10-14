@@ -172,6 +172,126 @@ export class WebSocketError extends BedrockClientError {
 }
 
 /**
+ * Error thrown when integration operations fail (Knowledge Base, Agent Core, etc.)
+ */
+export class IntegrationError extends BedrockClientError {
+  readonly code = 'INTEGRATION_ERROR';
+  
+  constructor(
+    message: string,
+    public readonly component: 'knowledge' | 'agent' | 'orchestrator' | 'classifier',
+    public readonly metadata: Record<string, any> = {},
+    sessionId?: string,
+    cause?: Error
+  ) {
+    super(message, sessionId, cause);
+  }
+
+  /**
+   * Get structured error data for logging and metrics
+   */
+  getStructuredData(): {
+    errorType: string;
+    component: string;
+    message: string;
+    sessionId?: string;
+    metadata: Record<string, any>;
+    timestamp: string;
+    correlationId?: string;
+  } {
+    return {
+      errorType: this.code,
+      component: this.component,
+      message: this.message,
+      sessionId: this.sessionId,
+      metadata: this.metadata,
+      timestamp: new Date().toISOString(),
+      correlationId: this.metadata.correlationId
+    };
+  }
+
+  /**
+   * Create a knowledge base integration error
+   */
+  static knowledgeBase(
+    message: string,
+    knowledgeBaseId?: string,
+    sessionId?: string,
+    cause?: Error
+  ): IntegrationError {
+    return new IntegrationError(
+      message,
+      'knowledge',
+      { knowledgeBaseId },
+      sessionId,
+      cause
+    );
+  }
+
+  /**
+   * Create an agent core integration error
+   */
+  static agentCore(
+    message: string,
+    agentId?: string,
+    agentAliasId?: string,
+    sessionId?: string,
+    cause?: Error
+  ): IntegrationError {
+    return new IntegrationError(
+      message,
+      'agent',
+      { agentId, agentAliasId },
+      sessionId,
+      cause
+    );
+  }
+
+  /**
+   * Create an orchestrator integration error
+   */
+  static orchestrator(
+    message: string,
+    routingDecision?: string,
+    sessionId?: string,
+    cause?: Error
+  ): IntegrationError {
+    return new IntegrationError(
+      message,
+      'orchestrator',
+      { routingDecision },
+      sessionId,
+      cause
+    );
+  }
+
+  /**
+   * Create an intent classifier integration error
+   */
+  static classifier(
+    message: string,
+    inputLength?: number,
+    sessionId?: string,
+    cause?: Error
+  ): IntegrationError {
+    return new IntegrationError(
+      message,
+      'classifier',
+      { inputLength },
+      sessionId,
+      cause
+    );
+  }
+}
+
+/**
+ * Type guard to check if error is an IntegrationError
+ */
+export function isIntegrationError(error: any): error is IntegrationError {
+  return error instanceof IntegrationError;
+}
+
+/**
  * Utility to extract error details for logging
  */
 export function extractErrorDetails(error: any): {

@@ -239,7 +239,7 @@ describe('StreamSession Edge Cases', () => {
       await session.close();
 
       const realtimeState = session.getRealtimeState();
-      expect(realtimeState.realtimeMode).toBe(false);
+      expect(realtimeState.realtimeMode).toBe(true); // Real-time mode is always enabled
       expect(realtimeState.userSpeaking).toBe(false);
     });
 

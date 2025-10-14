@@ -1,0 +1,40 @@
+{
+  "knowledgeBases": [
+    {
+      "id": "company-docs",
+      "knowledgeBaseId": "ABCD1234EFGH",
+      "name": "Company Documentation",
+      "enabled": true,
+      "domain": "documentation",
+      "priority": 1
+    },
+    {
+      "id": "product-info",
+      "knowledgeBaseId": "EFGH5678IJKL",
+      "name": "Product Information",
+      "enabled": true,
+      "domain": "products",
+      "priority": 2
+    }
+  ],
+  "agents": [
+    {
+      "id": "customer-support",
+      "agentId": "MNOP9012QRST",
+      "agentAliasId": "TSTALIASID",
+      "name": "Customer Support Agent",
+      "enabled": true,
+      "category": "support",
+      "priority": 1
+    },
+    {
+      "id": "sales-assistant",
+      "agentId": "UVWX3456YZAB",
+      "agentAliasId": "TSTALIASID",
+      "name": "Sales Assistant Agent",
+      "enabled": false,
+      "category": "sales",
+      "priority": 2
+    }
+  ]
+}

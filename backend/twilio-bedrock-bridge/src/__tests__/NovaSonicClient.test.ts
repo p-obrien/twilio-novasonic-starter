@@ -2,7 +2,7 @@
  * Tests for NovaSonicBidirectionalStreamClient
  */
 
-import { NovaSonicBidirectionalStreamClient } from '../client';
+import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../client/';
 import { StreamSession } from '../session/StreamSession';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { Subject } from 'rxjs';
@@ -46,20 +46,23 @@ describe('NovaSonicBidirectionalStreamClient', () => {
     client = new NovaSonicBidirectionalStreamClient({
       clientConfig: {
         region: 'us-east-1'
-      }
+      },
+      enableOrchestrator: false
     });
   });
 
   afterEach(() => {
     // Clean up any active sessions to prevent memory leaks and hanging timers
-    const activeSessions = client.getActiveSessions();
-    activeSessions.forEach(sessionId => {
-      try {
-        client.forceCloseSession(sessionId);
-      } catch (e) {
-        // Ignore cleanup errors in tests
-      }
-    });
+    if (client && client.getActiveSessions) {
+      const activeSessions = client.getActiveSessions();
+      activeSessions.forEach(sessionId => {
+        try {
+          client.forceCloseSession(sessionId);
+        } catch (e) {
+          // Ignore cleanup errors in tests
+        }
+      });
+    }
   });
 
   describe('Constructor', () => {
@@ -391,12 +394,14 @@ describe('NovaSonicBidirectionalStreamClient', () => {
     });
 
     describe('enableRealtimeInterruption', () => {
-      it('should enable real-time mode for session', () => {
-        client.enableRealtimeInterruption(sessionId);
-
+      it('should have real-time mode always enabled by default', () => {
+        // Real-time mode should be enabled by default in the unified client
         const sessionData = client.getSessionData(sessionId) as any;
         expect(sessionData.realtimeMode).toBe(true);
-        expect(sessionData.isWaitingForResponse).toBe(false);
+        
+        // Calling enableRealtimeInterruption should not change anything since it's already enabled
+        client.enableRealtimeInterruption(sessionId);
+        expect(sessionData.realtimeMode).toBe(true);
       });
     });
 

@@ -50,7 +50,7 @@ resource "aws_iam_role_policy" "ecs_task_bedrock_policy" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Effect = "Allow"
         Action = [
@@ -125,7 +125,55 @@ resource "aws_iam_role_policy" "ecs_task_bedrock_policy" {
           "arn:aws:logs:*:*:log-group:/aws/ecs/twilio-bedrock-bridge*"
         ]
       }
-    ]
+    ],
+    # Conditionally add Knowledge Base permissions if ARNs are provided and not just "*"
+    length(var.knowledge_base_arns) > 0 && !contains(var.knowledge_base_arns, "*") ? [
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:Retrieve",
+          "bedrock:RetrieveAndGenerate"
+        ]
+        Resource = var.knowledge_base_arns
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = var.region
+          }
+        }
+      }
+    ] : [],
+    # Conditionally add Agent permissions if ARNs are provided and not just "*"
+    length(var.agent_arns) > 0 && !contains(var.agent_arns, "*") ? [
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeAgent"
+        ]
+        Resource = var.agent_arns
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = var.region
+          }
+        }
+      }
+    ] : [],
+    # Add wildcard permissions for Knowledge Base and Agent if "*" is specified
+    contains(var.knowledge_base_arns, "*") || contains(var.agent_arns, "*") ? [
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:Retrieve",
+          "bedrock:RetrieveAndGenerate",
+          "bedrock:InvokeAgent"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = var.region
+          }
+        }
+      }
+    ] : [])
   })
 }
 
@@ -450,6 +498,10 @@ resource "aws_ecs_task_definition" "twilio_media_stream" {
         {
           name  = "OTEL_METRIC_EXPORT_TIMEOUT"
           value = "30000"
+        },
+        {
+          name  = "OTEL_SDK_DISABLED"
+          value = "true"
         }
       ], var.twilio_auth_token != null ? [
         {

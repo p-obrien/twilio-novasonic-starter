@@ -148,3 +148,57 @@ export function normalizeTwilioSequenceNumber(msg: any): string | undefined {
   if (raw === undefined || raw === null) return undefined;
   return typeof raw === 'number' ? String(raw) : String(raw);
 }
+
+/* ============================
+   Conversation Context Types
+   ============================ */
+
+/**
+ * Conversation context for tracking session state and history
+ */
+export interface ConversationContext {
+  /** Unique conversation identifier */
+  conversationId: string;
+  /** Session identifier from Twilio */
+  sessionId?: string;
+  /** Stream identifier from Twilio */
+  streamSid?: string;
+  /** Conversation history */
+  messages: ConversationMessage[];
+  /** Current conversation state */
+  state: ConversationState;
+  /** Metadata about the conversation */
+  metadata: Record<string, any>;
+  /** Timestamp when conversation started */
+  startTime: Date;
+  /** Timestamp of last activity */
+  lastActivity: Date;
+}
+
+/**
+ * Individual message in conversation history
+ */
+export interface ConversationMessage {
+  /** Message identifier */
+  id: string;
+  /** Message role (user, assistant, system) */
+  role: 'user' | 'assistant' | 'system';
+  /** Message content */
+  content: string;
+  /** Message timestamp */
+  timestamp: Date;
+  /** Optional metadata */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Conversation state enumeration
+ */
+export type ConversationState = 
+  | 'initializing'
+  | 'active'
+  | 'waiting_for_input'
+  | 'processing'
+  | 'ending'
+  | 'ended'
+  | 'error';

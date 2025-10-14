@@ -65,8 +65,8 @@ export class StreamSession {
   private readonly processingTimeoutMs: number;
   private readonly dropOldestOnFull: boolean;
   
-  // Real-time conversation state
-  private realtimeMode = false;
+  // Real-time conversation state - always enabled for unified client
+  private realtimeMode = true;
   private userSpeaking = false;
   private lastUserActivity?: number;
   
@@ -427,8 +427,7 @@ export class StreamSession {
         this.clearAudioQueue();
         this.clearOutputBuffer();
         
-        // Reset real-time state
-        this.realtimeMode = false;
+        // Reset real-time state (realtimeMode stays true as it's always enabled)
         this.userSpeaking = false;
         this.lastUserActivity = undefined;
         
@@ -568,7 +567,7 @@ export class StreamSession {
         conversationState = 'user_speaking';
       } else if (this.audioOutputBuffer.length > 0) {
         conversationState = 'model_responding';
-      } else if (this.realtimeMode && timeSinceLastActivity && timeSinceLastActivity < 1000) {
+      } else if (timeSinceLastActivity && timeSinceLastActivity < 1000) {
         conversationState = 'interrupted';
       } else {
         conversationState = 'idle';
@@ -1115,7 +1114,8 @@ export class StreamSession {
   }
 
   /**
-   * Enable real-time interruption mode - allows model to respond while user is speaking
+   * Real-time interruption mode is always enabled in the unified client
+   * This method exists for backward compatibility but does nothing since real-time mode is always on
    */
   public enableRealtimeMode(): void {
     CorrelationIdManager.traceWithCorrelation('session.enable_realtime_mode', () => {
@@ -1127,27 +1127,16 @@ export class StreamSession {
         return;
       }
       
-      try {
-        const wasRealtimeMode = this.realtimeMode;
-        this.realtimeMode = true;
-        
-        if (typeof this.client.enableRealtimeInterruption === 'function') {
-          this.client.enableRealtimeInterruption(this.sessionId);
-        }
-        
-        logger.info(`Real-time mode enabled`, {
-          sessionId: this.sessionId,
-          wasAlreadyEnabled: wasRealtimeMode,
-          clientSupportsRealtime: typeof this.client.enableRealtimeInterruption === 'function',
-          correlationId: CorrelationIdManager.getCurrentCorrelationId()
-        });
-      } catch (error) {
-        logger.error(`Failed to enable real-time mode`, {
-          sessionId: this.sessionId,
-          error: extractErrorDetails(error),
-          correlationId: CorrelationIdManager.getCurrentCorrelationId()
-        });
-        throw new SessionError('Failed to enable real-time mode', this.sessionId, error as Error);
+      // Real-time mode is always enabled in the unified client
+      logger.debug(`Real-time mode is always enabled in unified client`, {
+        sessionId: this.sessionId,
+        realtimeMode: this.realtimeMode,
+        correlationId: CorrelationIdManager.getCurrentCorrelationId()
+      });
+      
+      // Still call the client method for backward compatibility
+      if (typeof this.client.enableRealtimeInterruption === 'function') {
+        this.client.enableRealtimeInterruption(this.sessionId);
       }
     }, { 'session.id': this.sessionId });
   }
@@ -1226,7 +1215,7 @@ export class StreamSession {
         
         // Trigger interruption if user speaks in real-time mode
         let interruptionTriggered = false;
-        if (speaking && this.realtimeMode && !previousSpeaking) {
+        if (speaking && !previousSpeaking) {
           this.interruptModel();
           interruptionTriggered = true;
         }
@@ -1381,7 +1370,7 @@ export class StreamSession {
 
       // Check real-time features
       const realtimeStats = this.getRealtimeState();
-      if (realtimeStats.realtimeMode && !realtimeStats.clientCapabilities.supportsRealtimeInterruption) {
+      if (!realtimeStats.clientCapabilities.supportsRealtimeInterruption) {
         warnings.push('Real-time mode enabled but client does not support interruption');
         recommendations.push('Verify client implementation supports real-time features');
       }

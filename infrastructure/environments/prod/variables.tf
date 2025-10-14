@@ -154,3 +154,193 @@ variable "slack_webhook_url" {
   default     = null
   sensitive   = true
 }
+
+# Knowledge Base and Agent Configuration Variables
+variable "knowledge_base_arns" {
+  description = "List of Bedrock Knowledge Base ARNs that the service can access (deprecated - use external_knowledge_base_arns)"
+  type        = list(string)
+  default     = []  # Empty by default for production security - must be explicitly configured
+}
+
+variable "agent_arns" {
+  description = "List of Bedrock Agent ARNs that the service can invoke (deprecated - use external_agent_arns)"
+  type        = list(string)
+  default     = []  # Empty by default for production security - must be explicitly configured
+}
+
+# New Bedrock Knowledge Base Module Variables
+variable "create_knowledge_base" {
+  description = "Whether to create a new Bedrock Knowledge Base"
+  type        = bool
+  default     = false
+}
+
+variable "knowledge_base_embedding_model_id" {
+  description = "Bedrock embedding model ID for the knowledge base"
+  type        = string
+  default     = "amazon.titan-embed-text-v1"
+}
+
+variable "knowledge_base_database_name" {
+  description = "Name of the PostgreSQL database for vector storage"
+  type        = string
+  default     = "knowledge_base_vectors"
+}
+
+variable "knowledge_base_db_username" {
+  description = "Master username for the Aurora cluster"
+  type        = string
+  default     = "postgres"
+}
+
+variable "knowledge_base_vector_table_name" {
+  description = "Name of the table for storing vectors in PostgreSQL"
+  type        = string
+  default     = "bedrock_integration"
+}
+
+variable "knowledge_base_min_capacity" {
+  description = "Minimum Aurora Serverless v2 capacity (ACUs)"
+  type        = number
+  default     = 0.5
+}
+
+variable "knowledge_base_max_capacity" {
+  description = "Maximum Aurora Serverless v2 capacity (ACUs)"
+  type        = number
+  default     = 2
+}
+
+variable "knowledge_base_skip_final_snapshot" {
+  description = "Whether to skip final snapshot when deleting the cluster"
+  type        = bool
+  default     = true
+}
+
+variable "knowledge_base_deletion_protection" {
+  description = "Whether to enable deletion protection for the cluster"
+  type        = bool
+  default     = false
+}
+
+variable "knowledge_base_auto_ingestion_prefix" {
+  description = "S3 prefix to monitor for auto-ingestion (empty for all objects)"
+  type        = string
+  default     = ""
+}
+
+variable "knowledge_base_s3_inclusion_prefixes" {
+  description = "List of S3 prefixes to include in the knowledge base data source"
+  type        = list(string)
+  default     = []
+}
+
+variable "knowledge_base_chunking_strategy" {
+  description = "Chunking strategy for document processing (FIXED_SIZE, NONE)"
+  type        = string
+  default     = "FIXED_SIZE"
+}
+
+variable "knowledge_base_max_tokens" {
+  description = "Maximum number of tokens per chunk"
+  type        = number
+  default     = 300
+}
+
+variable "knowledge_base_overlap_percentage" {
+  description = "Percentage of overlap between chunks"
+  type        = number
+  default     = 20
+}
+
+variable "external_knowledge_base_arns" {
+  description = "List of external Bedrock Knowledge Base ARNs that the service can access"
+  type        = list(string)
+  default     = []
+}
+
+# New Bedrock Agent Module Variables
+variable "create_agent" {
+  description = "Whether to create a new Bedrock Agent"
+  type        = bool
+  default     = false
+}
+
+variable "agent_foundation_model_ids" {
+  description = "List of foundation model IDs that the agent can use"
+  type        = list(string)
+  default     = ["anthropic.claude-3-sonnet-20240229-v1:0"]
+}
+
+variable "agent_instruction" {
+  description = "Instructions for the Bedrock Agent"
+  type        = string
+  default     = "You are a helpful AI assistant that can answer questions and perform tasks using available tools and knowledge bases."
+}
+
+variable "agent_description" {
+  description = "Description of the Bedrock Agent"
+  type        = string
+  default     = "AI assistant with access to knowledge bases and custom actions"
+}
+
+variable "agent_idle_session_ttl_in_seconds" {
+  description = "Idle session timeout in seconds"
+  type        = number
+  default     = 3600
+}
+
+variable "agent_alias_name" {
+  description = "Name for the agent alias"
+  type        = string
+  default     = "live"
+}
+
+variable "agent_action_groups" {
+  description = "List of action groups for the agent"
+  type = list(object({
+    name                           = string
+    description                    = string
+    state                         = optional(string, "ENABLED")
+    lambda_function_arn           = optional(string)
+    api_schema                    = optional(string)
+    create_lambda_function        = optional(bool, false)
+    lambda_function_code          = optional(string)
+    lambda_handler               = optional(string, "index.handler")
+    lambda_runtime               = optional(string, "python3.11")
+    lambda_timeout               = optional(number, 30)
+    lambda_environment_variables = optional(map(string), {})
+  }))
+  default = []
+}
+
+variable "agent_prompt_override_configuration" {
+  description = "Prompt override configuration for the agent"
+  type = object({
+    base_prompt_template    = string
+    maximum_length         = optional(number, 2048)
+    stop_sequences         = optional(list(string), [])
+    temperature           = optional(number, 0.7)
+    top_k                 = optional(number, 250)
+    top_p                 = optional(number, 0.999)
+    parser_mode           = optional(string, "DEFAULT")
+    prompt_creation_mode  = optional(string, "OVERRIDDEN")
+    prompt_state          = optional(string, "ENABLED")
+    prompt_type           = optional(string, "ORCHESTRATION")
+  })
+  default = null
+}
+
+variable "agent_routing_configuration" {
+  description = "Routing configuration for the agent alias"
+  type = object({
+    agent_version = optional(string, "DRAFT")
+  })
+  default = null
+}
+
+variable "external_agent_arns" {
+  description = "List of external Bedrock Agent ARNs that the service can invoke"
+  type        = list(string)
+  default     = []
+}

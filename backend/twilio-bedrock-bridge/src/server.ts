@@ -79,6 +79,9 @@ app.get('/health/readiness', HealthHandler.getReadiness);
 app.get('/health/liveness', HealthHandler.getLiveness);
 app.get('/health', HealthHandler.getReadiness); // General health endpoint
 
+// Production server - test endpoints removed
+// For testing, use standalone scripts in examples/ and scripts/ directories
+
 
 // Start server
 const PORT = process.env.PORT || 8080;

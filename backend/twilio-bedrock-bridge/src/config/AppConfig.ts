@@ -4,7 +4,9 @@
  */
 
 import { InferenceConfig } from '../types/SharedTypes';
+import { IntegrationConfig } from '../types/IntegrationTypes';
 import { DefaultInferenceConfiguration } from '../utils/constants';
+import { IntegrationConfigValidator } from './IntegrationConfigValidator';
 
 export interface AppConfig {
   server: {
@@ -26,6 +28,7 @@ export interface AppConfig {
     level: string;
   };
   inference: InferenceConfig;
+  integration: IntegrationConfig;
 }
 
 class ConfigManager {
@@ -74,6 +77,7 @@ class ConfigManager {
         topP: parseFloat(process.env.TOP_P || String(DefaultInferenceConfiguration.topP)),
         temperature: parseFloat(process.env.TEMPERATURE || String(DefaultInferenceConfiguration.temperature)),
       },
+      integration: this.loadIntegrationConfig(),
     };
 
     // Log Bedrock configuration
@@ -81,6 +85,86 @@ class ConfigManager {
       bedrockRegion: config.bedrock.region,
       bedrockModelId: config.bedrock.modelId,
       awsRegion: config.aws.region
+    });
+
+    return config;
+  }
+
+  /**
+   * Load integration configuration from environment variables
+   * @returns Integration configuration
+   */
+  private loadIntegrationConfig(): IntegrationConfig {
+    // Default configuration
+    const defaultConfig: IntegrationConfig = {
+      enabled: true,
+      knowledgeBases: [],
+      agents: [],
+      thresholds: {
+        intentConfidenceThreshold: 0.7,
+        knowledgeQueryTimeoutMs: 5000,
+        agentInvocationTimeoutMs: 10000,
+        maxRetries: 2,
+      },
+    };
+
+    // Integration is always enabled - this is the only supported mode
+    console.log('Integration features enabled (default mode)');
+    const integrationEnabled = true;
+
+    // Parse knowledge bases configuration
+    const knowledgeBases = this.parseJsonConfig('KNOWLEDGE_BASES_CONFIG', []);
+    
+    // Parse agents configuration
+    const agents = this.parseJsonConfig('AGENTS_CONFIG', []);
+
+    // Parse thresholds with environment variable overrides
+    const thresholds = {
+      intentConfidenceThreshold: parseFloat(
+        process.env.INTENT_CONFIDENCE_THRESHOLD || 
+        String(defaultConfig.thresholds.intentConfidenceThreshold)
+      ),
+      knowledgeQueryTimeoutMs: parseInt(
+        process.env.KNOWLEDGE_QUERY_TIMEOUT_MS || 
+        String(defaultConfig.thresholds.knowledgeQueryTimeoutMs), 
+        10
+      ),
+      agentInvocationTimeoutMs: parseInt(
+        process.env.AGENT_INVOCATION_TIMEOUT_MS || 
+        String(defaultConfig.thresholds.agentInvocationTimeoutMs), 
+        10
+      ),
+      maxRetries: parseInt(
+        process.env.MAX_RETRIES || 
+        String(defaultConfig.thresholds.maxRetries), 
+        10
+      ),
+    };
+
+    const config: IntegrationConfig = {
+      enabled: true, // Always enabled - this is the only supported mode
+      knowledgeBases,
+      agents,
+      thresholds,
+    };
+
+    // Validate configuration
+    const validation = IntegrationConfigValidator.validate(config);
+    if (!validation.isValid) {
+      console.error('Integration configuration validation failed:', validation.errors);
+      throw new Error(`Integration configuration validation failed: ${validation.errors.join(', ')}`);
+    }
+
+    // Log warnings if any
+    if (validation.warnings.length > 0) {
+      console.warn('Integration configuration warnings:', validation.warnings);
+    }
+
+    console.log('Integration configuration loaded:', {
+      enabled: config.enabled,
+      knowledgeBasesCount: config.knowledgeBases.length,
+      agentsCount: config.agents.length,
+      thresholds: config.thresholds,
     });
 
     return config;
@@ -96,6 +180,29 @@ class ConfigManager {
   public get twilio() { return this.config.twilio; }
   public get logging() { return this.config.logging; }
   public get inference() { return this.config.inference; }
+  public get integration() { return this.config.integration; }
+
+  /**
+   * Parse JSON configuration from environment variable
+   * @param envVar Environment variable name
+   * @param defaultValue Default value if not provided
+   * @returns Parsed JSON object or default value
+   */
+  private parseJsonConfig<T>(envVar: string, defaultValue: T): T {
+    const value = process.env[envVar];
+    if (!value) {
+      return defaultValue;
+    }
+
+    try {
+      return JSON.parse(value) as T;
+    } catch (error) {
+      console.warn(`Failed to parse ${envVar} as JSON, using default:`, error);
+      return defaultValue;
+    }
+  }
+
+
 }
 
 export const config = ConfigManager.getInstance();

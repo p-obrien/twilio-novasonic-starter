@@ -49,6 +49,17 @@ describe('AppConfig', () => {
           maxTokens: expect.any(Number),
           topP: expect.any(Number),
           temperature: expect.any(Number)
+        },
+        integration: {
+          enabled: true, // Always enabled - this is the only supported mode
+          knowledgeBases: [],
+          agents: [],
+          thresholds: {
+            intentConfidenceThreshold: 0.7,
+            knowledgeQueryTimeoutMs: 5000,
+            agentInvocationTimeoutMs: 10000,
+            maxRetries: 2
+          }
         }
       });
     });
@@ -218,6 +229,7 @@ describe('AppConfig', () => {
       expect(testConfig.twilio).toBeDefined();
       expect(testConfig.logging).toBeDefined();
       expect(testConfig.inference).toBeDefined();
+      expect(testConfig.integration).toBeDefined();
     });
   });
 
@@ -240,6 +252,11 @@ describe('AppConfig', () => {
       expect(appConfig.inference.maxTokens).toBeDefined();
       expect(appConfig.inference.topP).toBeDefined();
       expect(appConfig.inference.temperature).toBeDefined();
+      expect(appConfig.integration).toBeDefined();
+      expect(appConfig.integration.enabled).toBeDefined();
+      expect(appConfig.integration.knowledgeBases).toBeDefined();
+      expect(appConfig.integration.agents).toBeDefined();
+      expect(appConfig.integration.thresholds).toBeDefined();
     });
 
     it('should not expose sensitive information in logs', () => {
@@ -251,6 +268,80 @@ describe('AppConfig', () => {
       // Auth token should be present but we're not testing for exposure here
       // In a real scenario, you might want to ensure sensitive data is masked
       expect(configString).toContain('secret-token');
+    });
+  });
+
+  describe('Integration Configuration', () => {
+    beforeEach(() => {
+      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+    });
+
+    it('should have integration enabled by default', () => {
+      const { config: testConfig } = require('../config/AppConfig');
+      const appConfig = testConfig.getConfig();
+
+      expect(appConfig.integration.enabled).toBe(true);
+      expect(appConfig.integration.knowledgeBases).toEqual([]);
+      expect(appConfig.integration.agents).toEqual([]);
+    });
+
+    it('should parse knowledge bases configuration from JSON', () => {
+      process.env.KNOWLEDGE_BASES_CONFIG = JSON.stringify([
+        {
+          id: 'test-kb',
+          knowledgeBaseId: 'KB123',
+          enabled: true
+        }
+      ]);
+
+      const { config: testConfig } = require('../config/AppConfig');
+      const appConfig = testConfig.getConfig();
+
+      expect(appConfig.integration.knowledgeBases).toHaveLength(1);
+      expect(appConfig.integration.knowledgeBases[0].id).toBe('test-kb');
+      expect(appConfig.integration.knowledgeBases[0].knowledgeBaseId).toBe('KB123');
+    });
+
+    it('should parse agents configuration from JSON', () => {
+      process.env.AGENTS_CONFIG = JSON.stringify([
+        {
+          id: 'test-agent',
+          agentId: 'AGENT123',
+          agentAliasId: 'ALIAS123',
+          enabled: true
+        }
+      ]);
+
+      const { config: testConfig } = require('../config/AppConfig');
+      const appConfig = testConfig.getConfig();
+
+      expect(appConfig.integration.agents).toHaveLength(1);
+      expect(appConfig.integration.agents[0].id).toBe('test-agent');
+      expect(appConfig.integration.agents[0].agentId).toBe('AGENT123');
+    });
+
+    it('should use custom threshold values from environment', () => {
+      process.env.INTENT_CONFIDENCE_THRESHOLD = '0.8';
+      process.env.KNOWLEDGE_QUERY_TIMEOUT_MS = '3000';
+      process.env.AGENT_INVOCATION_TIMEOUT_MS = '8000';
+      process.env.MAX_RETRIES = '3';
+
+      const { config: testConfig } = require('../config/AppConfig');
+      const appConfig = testConfig.getConfig();
+
+      expect(appConfig.integration.thresholds.intentConfidenceThreshold).toBe(0.8);
+      expect(appConfig.integration.thresholds.knowledgeQueryTimeoutMs).toBe(3000);
+      expect(appConfig.integration.thresholds.agentInvocationTimeoutMs).toBe(8000);
+      expect(appConfig.integration.thresholds.maxRetries).toBe(3);
+    });
+
+    it('should handle invalid JSON configuration gracefully', () => {
+      process.env.KNOWLEDGE_BASES_CONFIG = 'invalid-json';
+
+      const { config: testConfig } = require('../config/AppConfig');
+      const appConfig = testConfig.getConfig();
+
+      expect(appConfig.integration.knowledgeBases).toEqual([]);
     });
   });
 

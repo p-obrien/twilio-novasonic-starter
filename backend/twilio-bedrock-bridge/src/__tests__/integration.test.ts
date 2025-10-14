@@ -9,7 +9,7 @@ import request from 'supertest';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import http from 'http';
-import { NovaSonicBidirectionalStreamClient } from '../client';
+import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../client/';
 import { WebhookHandler } from '../handlers/WebhookHandler';
 import { HealthHandler } from '../handlers/HealthHandler';
 import { initWebsocketServer } from '../handlers/WebsocketHandler';

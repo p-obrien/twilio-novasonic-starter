@@ -65,3 +65,50 @@ output "target_group_arn" {
   description = "ARN of the target group"
   value       = module.alb.target_group_arn
 }
+
+# Knowledge Base Outputs (conditional)
+output "knowledge_base_id" {
+  description = "ID of the Bedrock Knowledge Base (if created)"
+  value       = var.create_knowledge_base ? module.knowledge_base[0].knowledge_base_id : null
+}
+
+output "knowledge_base_arn" {
+  description = "ARN of the Bedrock Knowledge Base (if created)"
+  value       = var.create_knowledge_base ? module.knowledge_base[0].knowledge_base_arn : null
+}
+
+output "knowledge_base_s3_documents_bucket_name" {
+  description = "Name of the S3 bucket for knowledge base documents (if created)"
+  value       = var.create_knowledge_base ? module.knowledge_base[0].s3_documents_bucket_name : null
+}
+
+output "knowledge_base_rds_cluster_endpoint" {
+  description = "Endpoint of the Aurora Serverless cluster for vector storage (if created)"
+  value       = var.create_knowledge_base ? module.knowledge_base[0].rds_cluster_endpoint : null
+}
+
+output "knowledge_base_database_name" {
+  description = "Name of the PostgreSQL database for vector storage (if created)"
+  value       = var.create_knowledge_base ? module.knowledge_base[0].database_name : null
+}
+
+# Agent Outputs (conditional)
+output "agent_id" {
+  description = "ID of the Bedrock Agent (if created)"
+  value       = var.create_agent ? module.agent[0].agent_id : null
+}
+
+output "agent_arn" {
+  description = "ARN of the Bedrock Agent (if created)"
+  value       = var.create_agent ? module.agent[0].agent_arn : null
+}
+
+output "agent_alias_id" {
+  description = "ID of the agent alias (if created)"
+  value       = var.create_agent ? module.agent[0].agent_alias_id : null
+}
+
+output "agent_alias_arn" {
+  description = "ARN of the agent alias (if created)"
+  value       = var.create_agent ? module.agent[0].agent_alias_arn : null
+}
