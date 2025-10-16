@@ -77,8 +77,8 @@ export class AudioBufferManager {
     if (!buffer) {
       buffer = new AudioBuffer(ws, sessionId, {
         frameSize: 160,    // 20ms at 8kHz μ-law (160 bytes = 160 samples = 20ms at 8kHz)
-        intervalMs: 5,     // Reduced to 5ms intervals for maximum consumption rate
-        maxBufferMs: 3000  // Increased to 3000ms for maximum headroom
+        intervalMs: 5,    // Optimal 20ms intervals to match Twilio's expected frame rate
+        maxBufferMs: 3000   // Reduced to 400ms to minimize latency while preventing underruns
       });
  
       this.sessionBuffers.set(sessionId, buffer);

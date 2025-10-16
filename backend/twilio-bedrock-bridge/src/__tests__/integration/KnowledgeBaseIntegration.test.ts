@@ -226,7 +226,7 @@ describe('Knowledge Base Integration', () => {
               });
             }
           } catch (error) {
-            console.log('Knowledge base query failed (may be expected in test environment):', error.message);
+            console.log('Knowledge base query failed (may be expected in test environment):', error instanceof Error ? error.message : String(error));
           }
         }
       }
@@ -300,7 +300,7 @@ describe('Knowledge Base Integration', () => {
               agentId: response.agentId,
             });
           } catch (error) {
-            console.log('Agent invocation failed (may be expected in test environment):', error.message);
+            console.log('Agent invocation failed (may be expected in test environment):', error instanceof Error ? error.message : String(error));
           }
         }
       }

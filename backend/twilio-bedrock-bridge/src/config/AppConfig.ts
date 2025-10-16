@@ -1,6 +1,7 @@
 /**
  * Centralized application configuration
  * Validates and provides typed access to all environment variables and settings
+ * Knowledge base integration is always enabled with default configuration
  */
 
 import { InferenceConfig } from '../types/SharedTypes';
@@ -91,58 +92,69 @@ class ConfigManager {
   }
 
   /**
-   * Load integration configuration from environment variables
+   * Load integration configuration - knowledge base always enabled and managed by OpenTofu
    * @returns Integration configuration
    */
   private loadIntegrationConfig(): IntegrationConfig {
-    // Default configuration
-    const defaultConfig: IntegrationConfig = {
-      enabled: true,
-      knowledgeBases: [],
-      agents: [],
-      thresholds: {
-        intentConfidenceThreshold: 0.7,
-        knowledgeQueryTimeoutMs: 5000,
-        agentInvocationTimeoutMs: 10000,
-        maxRetries: 2,
-      },
-    };
+    // Knowledge base configuration from OpenTofu deployment - REQUIRED
+    const knowledgeBaseId = process.env.BEDROCK_KNOWLEDGE_BASE_ID;
+    if (!knowledgeBaseId) {
+      throw new Error('BEDROCK_KNOWLEDGE_BASE_ID environment variable is required. This should be set automatically by the OpenTofu deployment.');
+    }
 
-    // Integration is always enabled - this is the only supported mode
-    console.log('Integration features enabled (default mode)');
-    const integrationEnabled = true;
+    // Knowledge base is always enabled and managed by OpenTofu
+    const knowledgeBases = [
+      {
+        id: 'main-kb',
+        knowledgeBaseId: knowledgeBaseId,
+        name: 'Main Knowledge Base',
+        enabled: true,
+        domain: 'general',
+        priority: 1,
+      }
+    ];
 
-    // Parse knowledge bases configuration
-    const knowledgeBases = this.parseJsonConfig('KNOWLEDGE_BASES_CONFIG', []);
+    // Integration is always enabled - knowledge base managed by OpenTofu
+    console.log('Integration features enabled - Knowledge Base managed by OpenTofu');
     
-    // Parse agents configuration
-    const agents = this.parseJsonConfig('AGENTS_CONFIG', []);
+    // Agent configuration from OpenTofu deployment (optional)
+    const agentId = process.env.BEDROCK_AGENT_ID;
+    const agentAliasId = process.env.BEDROCK_AGENT_ALIAS_ID;
+    
+    const agents = [];
+    if (agentId && agentAliasId) {
+      agents.push({
+        id: 'main-agent',
+        agentId: agentId,
+        agentAliasId: agentAliasId,
+        name: 'Main Agent',
+        enabled: true,
+        category: 'general',
+        priority: 1,
+      });
+    }
 
     // Parse thresholds with environment variable overrides
     const thresholds = {
       intentConfidenceThreshold: parseFloat(
-        process.env.INTENT_CONFIDENCE_THRESHOLD || 
-        String(defaultConfig.thresholds.intentConfidenceThreshold)
+        process.env.INTENT_CONFIDENCE_THRESHOLD || '0.7'
       ),
       knowledgeQueryTimeoutMs: parseInt(
-        process.env.KNOWLEDGE_QUERY_TIMEOUT_MS || 
-        String(defaultConfig.thresholds.knowledgeQueryTimeoutMs), 
+        process.env.KNOWLEDGE_QUERY_TIMEOUT_MS || '5000', 
         10
       ),
       agentInvocationTimeoutMs: parseInt(
-        process.env.AGENT_INVOCATION_TIMEOUT_MS || 
-        String(defaultConfig.thresholds.agentInvocationTimeoutMs), 
+        process.env.AGENT_INVOCATION_TIMEOUT_MS || '10000', 
         10
       ),
       maxRetries: parseInt(
-        process.env.MAX_RETRIES || 
-        String(defaultConfig.thresholds.maxRetries), 
+        process.env.MAX_RETRIES || '2', 
         10
       ),
     };
 
     const config: IntegrationConfig = {
-      enabled: true, // Always enabled - this is the only supported mode
+      enabled: true, // Always enabled - knowledge base managed by OpenTofu
       knowledgeBases,
       agents,
       thresholds,

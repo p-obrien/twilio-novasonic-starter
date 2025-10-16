@@ -209,10 +209,13 @@ module "ecs" {
     var.create_knowledge_base ? [module.knowledge_base[0].knowledge_base_arn] : [],
     var.external_knowledge_base_arns
   )
+  knowledge_base_id             = var.create_knowledge_base ? module.knowledge_base[0].knowledge_base_id : null
   agent_arns                    = concat(
     var.create_agent ? [module.agent[0].agent_alias_arn] : [],
     var.external_agent_arns
   )
+  agent_id                      = var.create_agent ? module.agent[0].agent_id : null
+  agent_alias_id                = var.create_agent ? module.agent[0].agent_alias_id : null
   
   tags = local.common_tags
 

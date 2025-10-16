@@ -121,20 +121,26 @@ export function upsample8kTo16k(pcm16leBuf: Buffer): Buffer {
   const outputSamples = inputSamples * 2;           // Double the sample count
   const out = Buffer.allocUnsafe(outputSamples * 2); // Allocate output buffer
 
-  // Simple linear interpolation upsampling - more predictable than complex filtering
+  // Optimized upsampling with basic anti-aliasing filter
   for (let i = 0; i < inputSamples; i++) {
     const currentSample = pcm16leBuf.readInt16LE(i * 2);
 
     // Write the original sample at even positions
     out.writeInt16LE(currentSample, i * 4);
 
-    // Calculate interpolated sample for odd positions
-    let interpolatedSample = currentSample; // Default to current sample
+    // Calculate interpolated sample with simple 3-tap filter for better quality
+    let interpolatedSample = currentSample;
 
     if (i < inputSamples - 1) {
       const nextSample = pcm16leBuf.readInt16LE((i + 1) * 2);
-      // Simple linear interpolation between current and next sample
-      interpolatedSample = Math.round((currentSample + nextSample) / 2);
+      const prevSample = i > 0 ? pcm16leBuf.readInt16LE((i - 1) * 2) : currentSample;
+      
+      // 3-tap filter: 25% previous + 50% average + 25% next
+      interpolatedSample = Math.round(
+        0.25 * prevSample + 
+        0.5 * ((currentSample + nextSample) / 2) + 
+        0.25 * nextSample
+      );
     }
 
     // Write the interpolated sample at odd positions

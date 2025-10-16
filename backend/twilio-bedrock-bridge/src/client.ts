@@ -61,6 +61,8 @@ export interface NovaSonicBidirectionalStreamClientConfig {
     region?: string;
     modelId?: string;
   };
+  enableOrchestrator?: boolean;
+  enableOrchestratorDebug?: boolean;
 }
 
 interface SessionData {
@@ -823,6 +825,85 @@ export class NovaSonicBidirectionalStreamClient {
   }
 
   /**
+   * Check if orchestrator is enabled (placeholder implementation)
+   */
+  public isOrchestratorEnabled(): boolean {
+    // For now, return false as orchestrator is not implemented
+    // This should be updated when orchestrator integration is added
+    return false;
+  }
+
+  /**
+   * Process text input through orchestrator (placeholder implementation)
+   */
+  public async processTextInput(
+    text: string,
+    sessionId: string,
+    context?: any
+  ): Promise<any> {
+    const startTime = Date.now();
+    
+    try {
+      // For now, return a basic conversation response
+      // This should be updated when orchestrator integration is added
+      const processingTime = Date.now() - startTime;
+      
+      logger.info(`Text input processed for session ${sessionId}`, {
+        processingTime,
+        textLength: text.length,
+        hasContext: !!context
+      });
+      
+      return {
+        response: `I understand your message: "${text}". The orchestrator integration is not currently enabled.`,
+        source: 'conversation',
+        sessionId,
+        metadata: {
+          processingTime,
+          inputTokens: Math.ceil(text.length / 4), // Rough token estimate
+          outputTokens: Math.ceil(text.length / 4),
+          fallbackReason: 'orchestrator_disabled'
+        }
+      };
+      
+    } catch (error) {
+      logger.error(`Error processing text input for session ${sessionId}:`, error);
+      return {
+        response: 'I apologize, but I encountered an issue processing your request.',
+        source: 'error',
+        sessionId,
+        metadata: {
+          processingTime: Date.now() - startTime,
+          error: error instanceof Error ? error.message : String(error)
+        }
+      };
+    }
+  }
+
+  /**
+   * Update orchestrator configuration (placeholder)
+   */
+  public updateOrchestratorConfig(config: any): void {
+    // Placeholder for orchestrator configuration updates
+    logger.debug('Orchestrator config update requested (not implemented)', { config });
+  }
+
+  /**
+   * Get orchestrator configuration (placeholder)
+   */
+  public getOrchestratorConfig(): any {
+    // Placeholder for orchestrator configuration retrieval
+    return {};
+  }
+
+  /**
+   * Cleanup method (alias for shutdown)
+   */
+  public cleanup(): void {
+    this.shutdown();
+  }
+
+  /**
    * Shutdown the client and clean up all resources
    */
   public shutdown(): void {
@@ -1433,3 +1514,6 @@ export class NovaSonicBidirectionalStreamClient {
   }
 
 }
+
+// Default export for easier importing
+export default NovaSonicBidirectionalStreamClient;

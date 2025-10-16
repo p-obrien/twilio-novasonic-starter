@@ -10,6 +10,7 @@ process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'ERROR';
 process.env.AWS_REGION = 'us-east-1';
 process.env.TWILIO_AUTH_TOKEN = 'test-auth-token-123456789abcdef';
+process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-opentofu-kb-setup-123';
 process.env.TWILIO_ACCOUNT_SID = 'AC' + '0'.repeat(32);
 process.env.CLOUDWATCH_ENABLED = 'false'; // Disable CloudWatch in tests by default
 process.env.ENABLE_XRAY = 'false'; // Disable X-Ray in tests

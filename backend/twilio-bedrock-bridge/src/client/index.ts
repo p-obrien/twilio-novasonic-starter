@@ -5,23 +5,21 @@
  * The base client is still available internally but not exposed.
  */
 
-// Export the enhanced client as the primary and only client
-export {
-  NovaSonicClient,
-  createNovaSonicClient,
-  type NovaSonicClientConfig,
-  type TextProcessingResult,
-} from './NovaSonicClient';
+// For now, export the bidirectional stream client directly as NovaSonicClient
+// This maintains compatibility with existing code while we work on the enhanced wrapper
+export { 
+  NovaSonicBidirectionalStreamClient as NovaSonicClient,
+  NovaSonicBidirectionalStreamClientConfig as NovaSonicClientConfig
+} from '../client';
 
-// Backward compatibility exports - all point to the enhanced client
-export {
-  NovaSonicClient as EnhancedNovaSonicClient,
-  createNovaSonicClient as createEnhancedNovaSonicClient,
-  type NovaSonicClientConfig as EnhancedNovaSonicClientConfig,
-  NovaSonicClient as NovaSonicBidirectionalStreamClient,
-  createNovaSonicClient as createNovaSonicBidirectionalStreamClient,
-  type NovaSonicClientConfig as NovaSonicBidirectionalStreamClientConfig,
-} from './NovaSonicClient';
+// Export the TextProcessingResult type from the enhanced client
+export { TextProcessingResult } from './NovaSonicClient';
 
-// Default export is the enhanced client
-export { NovaSonicClient as default } from './NovaSonicClient';
+// Factory function for creating clients
+export function createNovaSonicClient(config: any) {
+  const { NovaSonicBidirectionalStreamClient } = require('../client');
+  return new NovaSonicBidirectionalStreamClient(config);
+}
+
+// Default export
+export { NovaSonicBidirectionalStreamClient as default } from '../client';

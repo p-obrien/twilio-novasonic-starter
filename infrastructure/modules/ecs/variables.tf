@@ -117,8 +117,26 @@ variable "knowledge_base_arns" {
   default     = []
 }
 
+variable "knowledge_base_id" {
+  description = "Primary Bedrock Knowledge Base ID for the application"
+  type        = string
+  default     = null
+}
+
 variable "agent_arns" {
   description = "List of Bedrock Agent ARNs that the service can invoke. Use ['*'] for all agents."
   type        = list(string)
   default     = []
+}
+
+variable "agent_id" {
+  description = "Primary Bedrock Agent ID for the application"
+  type        = string
+  default     = null
+}
+
+variable "agent_alias_id" {
+  description = "Primary Bedrock Agent Alias ID for the application"
+  type        = string
+  default     = null
 }

@@ -63,9 +63,9 @@ export async function processTextWithOrchestrator(
       return {
         response: generateFallbackResponse(input),
         source: 'fallback',
+        sessionId,
         metadata: {
           fallbackReason: 'orchestrator_disabled',
-          originalInput: input.substring(0, 100), // First 100 chars for debugging
         },
       };
     }
@@ -79,6 +79,7 @@ export async function processTextWithOrchestrator(
     return {
       response: 'I apologize, but I encountered an issue processing your request. Please try again.',
       source: 'fallback',
+      sessionId,
       metadata: {
         error: error instanceof Error ? error.message : String(error),
       },

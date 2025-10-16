@@ -508,6 +508,21 @@ resource "aws_ecs_task_definition" "twilio_media_stream" {
           name  = "TWILIO_AUTH_TOKEN"
           value = var.twilio_auth_token
         }
+      ] : [], var.knowledge_base_id != null ? [
+        {
+          name  = "BEDROCK_KNOWLEDGE_BASE_ID"
+          value = var.knowledge_base_id
+        }
+      ] : [], var.agent_id != null ? [
+        {
+          name  = "BEDROCK_AGENT_ID"
+          value = var.agent_id
+        }
+      ] : [], var.agent_alias_id != null ? [
+        {
+          name  = "BEDROCK_AGENT_ALIAS_ID"
+          value = var.agent_alias_id
+        }
       ] : [])
 
       logConfiguration = {

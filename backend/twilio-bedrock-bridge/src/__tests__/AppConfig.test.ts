@@ -19,6 +19,7 @@ describe('AppConfig', () => {
   describe('Configuration Loading', () => {
     it('should load configuration with required environment variables', () => {
       process.env.TWILIO_AUTH_TOKEN = 'test-auth-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'opentofu-kb-12345';
       process.env.AWS_REGION = 'us-west-2';
       process.env.PORT = '3000';
       process.env.LOG_LEVEL = 'DEBUG';
@@ -52,7 +53,14 @@ describe('AppConfig', () => {
         },
         integration: {
           enabled: true, // Always enabled - this is the only supported mode
-          knowledgeBases: [],
+          knowledgeBases: [{
+            id: 'main-kb',
+            knowledgeBaseId: 'opentofu-kb-12345',
+            name: 'Main Knowledge Base',
+            enabled: true,
+            domain: 'general',
+            priority: 1
+          }],
           agents: [],
           thresholds: {
             intentConfidenceThreshold: 0.7,
@@ -66,6 +74,7 @@ describe('AppConfig', () => {
 
     it('should use default values when environment variables are not set', () => {
       process.env.TWILIO_AUTH_TOKEN = 'required-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'opentofu-kb-67890';
       delete process.env.AWS_REGION;
       delete process.env.PORT;
       delete process.env.LOG_LEVEL;
@@ -80,14 +89,26 @@ describe('AppConfig', () => {
 
     it('should throw error when TWILIO_AUTH_TOKEN is missing', () => {
       delete process.env.TWILIO_AUTH_TOKEN;
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-789';
 
       expect(() => {
         require('../config/AppConfig');
       }).toThrow('TWILIO_AUTH_TOKEN environment variable is required');
     });
 
+    it('should throw error when BEDROCK_KNOWLEDGE_BASE_ID is missing', () => {
+      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      delete process.env.BEDROCK_KNOWLEDGE_BASE_ID;
+
+      expect(() => {
+        delete require.cache[require.resolve('../config/AppConfig')];
+        require('../config/AppConfig');
+      }).toThrow('BEDROCK_KNOWLEDGE_BASE_ID environment variable is required');
+    });
+
     it('should handle quoted TWILIO_AUTH_TOKEN', () => {
       process.env.TWILIO_AUTH_TOKEN = '"quoted-auth-token"';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-quoted';
 
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
@@ -97,6 +118,7 @@ describe('AppConfig', () => {
 
     it('should trim whitespace from TWILIO_AUTH_TOKEN', () => {
       process.env.TWILIO_AUTH_TOKEN = '  whitespace-token  ';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-whitespace';
 
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
@@ -108,6 +130,7 @@ describe('AppConfig', () => {
   describe('Server Configuration', () => {
     beforeEach(() => {
       process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-server';
     });
 
     it('should parse PORT as integer', () => {
@@ -142,6 +165,7 @@ describe('AppConfig', () => {
   describe('AWS Configuration', () => {
     beforeEach(() => {
       process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-aws';
     });
 
     it('should use custom AWS region', () => {
@@ -166,6 +190,7 @@ describe('AppConfig', () => {
   describe('Inference Configuration', () => {
     beforeEach(() => {
       process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-inference';
     });
 
     it('should parse inference parameters as numbers', () => {
@@ -212,6 +237,7 @@ describe('AppConfig', () => {
   describe('Singleton Pattern', () => {
     beforeEach(() => {
       process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-singleton';
     });
 
     it('should return same instance on multiple calls', () => {
@@ -261,6 +287,7 @@ describe('AppConfig', () => {
 
     it('should not expose sensitive information in logs', () => {
       process.env.TWILIO_AUTH_TOKEN = 'secret-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-secret';
 
       const { config: testConfig } = require('../config/AppConfig');
       const configString = JSON.stringify(testConfig.getConfig());
@@ -274,6 +301,7 @@ describe('AppConfig', () => {
   describe('Integration Configuration', () => {
     beforeEach(() => {
       process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-integration';
     });
 
     it('should have integration enabled by default', () => {
@@ -281,43 +309,34 @@ describe('AppConfig', () => {
       const appConfig = testConfig.getConfig();
 
       expect(appConfig.integration.enabled).toBe(true);
-      expect(appConfig.integration.knowledgeBases).toEqual([]);
+      expect(appConfig.integration.knowledgeBases).toHaveLength(1);
+      expect(appConfig.integration.knowledgeBases[0].id).toBe('main-kb');
+      expect(appConfig.integration.knowledgeBases[0].enabled).toBe(true);
+      expect(appConfig.integration.knowledgeBases[0].knowledgeBaseId).toBeDefined();
       expect(appConfig.integration.agents).toEqual([]);
     });
 
-    it('should parse knowledge bases configuration from JSON', () => {
-      process.env.KNOWLEDGE_BASES_CONFIG = JSON.stringify([
-        {
-          id: 'test-kb',
-          knowledgeBaseId: 'KB123',
-          enabled: true
-        }
-      ]);
+    it('should use OpenTofu knowledge base configuration', () => {
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'opentofu-kb-test-123';
 
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
 
       expect(appConfig.integration.knowledgeBases).toHaveLength(1);
-      expect(appConfig.integration.knowledgeBases[0].id).toBe('test-kb');
-      expect(appConfig.integration.knowledgeBases[0].knowledgeBaseId).toBe('KB123');
+      expect(appConfig.integration.knowledgeBases[0].id).toBe('main-kb');
+      expect(appConfig.integration.knowledgeBases[0].knowledgeBaseId).toBe('opentofu-kb-test-123');
+      expect(appConfig.integration.knowledgeBases[0].name).toBe('Main Knowledge Base');
     });
 
-    it('should parse agents configuration from JSON', () => {
-      process.env.AGENTS_CONFIG = JSON.stringify([
-        {
-          id: 'test-agent',
-          agentId: 'AGENT123',
-          agentAliasId: 'ALIAS123',
-          enabled: true
-        }
-      ]);
+    it('should have no agents when OpenTofu agent variables are not set', () => {
+      // Ensure no agent environment variables are set
+      delete process.env.BEDROCK_AGENT_ID;
+      delete process.env.BEDROCK_AGENT_ALIAS_ID;
 
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
 
-      expect(appConfig.integration.agents).toHaveLength(1);
-      expect(appConfig.integration.agents[0].id).toBe('test-agent');
-      expect(appConfig.integration.agents[0].agentId).toBe('AGENT123');
+      expect(appConfig.integration.agents).toHaveLength(0);
     });
 
     it('should use custom threshold values from environment', () => {
@@ -335,19 +354,24 @@ describe('AppConfig', () => {
       expect(appConfig.integration.thresholds.maxRetries).toBe(3);
     });
 
-    it('should handle invalid JSON configuration gracefully', () => {
-      process.env.KNOWLEDGE_BASES_CONFIG = 'invalid-json';
+    it('should use OpenTofu agent configuration when provided', () => {
+      process.env.BEDROCK_AGENT_ID = 'opentofu-agent-123';
+      process.env.BEDROCK_AGENT_ALIAS_ID = 'opentofu-alias-456';
 
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
 
-      expect(appConfig.integration.knowledgeBases).toEqual([]);
+      expect(appConfig.integration.agents).toHaveLength(1);
+      expect(appConfig.integration.agents[0].id).toBe('main-agent');
+      expect(appConfig.integration.agents[0].agentId).toBe('opentofu-agent-123');
+      expect(appConfig.integration.agents[0].agentAliasId).toBe('opentofu-alias-456');
     });
   });
 
   describe('Environment-specific Configuration', () => {
     beforeEach(() => {
       process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-environment';
     });
 
     it('should handle development environment', () => {

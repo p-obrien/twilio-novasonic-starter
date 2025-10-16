@@ -27,7 +27,7 @@ const mockBedrockClient = {
   shutdown: jest.fn()
 };
 
-jest.doMock('../client', () => ({
+jest.doMock('../client/', () => ({
   NovaSonicClient: jest.fn().mockImplementation(() => mockBedrockClient),
   createNovaSonicClient: jest.fn().mockImplementation(() => mockBedrockClient)
 }));

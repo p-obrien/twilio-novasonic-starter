@@ -1,7 +1,7 @@
 {
-  "name": "twilio-bedrock-bridge",
+  "name": "twilio-nova-sonic-starter",
   "version": "0.1.0",
-  "description": "Bridge service connecting Twilio Voice to AWS Bedrock Nova Sonic for real-time AI conversations",
+  "description": "Production-ready bridge service connecting Twilio Voice to AWS Bedrock Nova Sonic with knowledge bases and intelligent agents",
   "private": false,
   "license": "MIT",
   "keywords": [
@@ -11,20 +11,25 @@
     "nova-sonic",
     "voice",
     "ai",
-    "real-time"
+    "real-time",
+    "knowledge-base",
+    "aurora-serverless",
+    "bedrock-agent",
+    "cost-optimized",
+    "production-ready"
   ],
   "engines": {
     "node": ">=22.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/p-obrien/twilio-novasonic-starter.git"
+    "url": "https://github.com/paulobrien/twilio-bedrock-bridge.git"
   },
   "author": "Paul O'Brien",
   "bugs": {
-    "url": "https://github.com/p-obrien/twilio-novasonic-starter/issues"
+    "url": "https://github.com/paulobrien/twilio-bedrock-bridge/issues"
   },
-  "homepage": "https://github.com/p-obrien/twilio-novasonic-starter#readme",
+  "homepage": "https://github.com/paulobrien/twilio-bedrock-bridge#readme",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node scripts/start.js",
