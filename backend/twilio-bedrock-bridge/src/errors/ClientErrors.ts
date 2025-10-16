@@ -537,6 +537,8 @@ export class WebSocketError extends BedrockClientError {
  */
 export class IntegrationError extends BedrockClientError {
   readonly code = 'INTEGRATION_ERROR';
+  readonly severity = ErrorSeverity.MEDIUM;
+  readonly retryable = true;
   
   constructor(
     message: string,
@@ -545,7 +547,13 @@ export class IntegrationError extends BedrockClientError {
     sessionId?: string,
     cause?: Error
   ) {
-    super(message, sessionId, cause);
+    const context: ErrorContext = {
+      sessionId,
+      operation: 'integration_operation',
+      timestamp: Date.now(),
+      metadata: { component, ...metadata }
+    };
+    super(message, context, cause);
   }
 
   /**

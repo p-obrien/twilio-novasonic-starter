@@ -420,17 +420,6 @@ export function upsample8kTo16k(pcm16leBuf: Buffer): Buffer {
   const bufferPool = BufferPool.getInstance();
   const out = bufferPool.acquire(outputSamples * 2);
 
-<<<<<<< HEAD
-  // Optimized upsampling with basic anti-aliasing filter
-  for (let i = 0; i < inputSamples; i++) {
-    const currentSample = pcm16leBuf.readInt16LE(i * 2);
-
-    // Write the original sample at even positions
-    out.writeInt16LE(currentSample, i * 4);
-
-    // Calculate interpolated sample with simple 3-tap filter for better quality
-    let interpolatedSample = currentSample;
-=======
   // Create typed array views for efficient access
   const inView = new Int16Array(pcm16leBuf.buffer, pcm16leBuf.byteOffset, inputSamples);
   const outView = new Int16Array(out.buffer, out.byteOffset, outputSamples);
@@ -441,21 +430,9 @@ export function upsample8kTo16k(pcm16leBuf: Buffer): Buffer {
     
     // Copy original sample
     outView[outIdx] = inView[i];
->>>>>>> origin/main
 
     // Calculate interpolated sample using 3-point filter
     if (i < inputSamples - 1) {
-<<<<<<< HEAD
-      const nextSample = pcm16leBuf.readInt16LE((i + 1) * 2);
-      const prevSample = i > 0 ? pcm16leBuf.readInt16LE((i - 1) * 2) : currentSample;
-      
-      // 3-tap filter: 25% previous + 50% average + 25% next
-      interpolatedSample = Math.round(
-        0.25 * prevSample + 
-        0.5 * ((currentSample + nextSample) / 2) + 
-        0.25 * nextSample
-      );
-=======
       const prev = i > 0 ? inView[i - 1] : inView[i];
       const curr = inView[i];
       const next = inView[i + 1];
@@ -470,7 +447,6 @@ export function upsample8kTo16k(pcm16leBuf: Buffer): Buffer {
     } else {
       // Last sample - just duplicate
       outView[outIdx + 1] = inView[i];
->>>>>>> origin/main
     }
   }
 

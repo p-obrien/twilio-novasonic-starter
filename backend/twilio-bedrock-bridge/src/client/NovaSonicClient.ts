@@ -14,7 +14,7 @@ import { NodeHttp2HandlerOptions } from "@smithy/node-http-handler";
 import { Provider } from "@smithy/types";
 import { NovaSonicClientConfig as BaseNovaSonicClientConfig, TextConfig, InferenceConfig } from '../types/ClientTypes';
 import { StreamSession } from '../session/StreamSession';
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 
 // Import the client class directly - we'll handle any circular import issues
 import NovaSonicBidirectionalStreamClient from '../client';

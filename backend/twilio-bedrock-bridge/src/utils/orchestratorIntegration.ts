@@ -13,7 +13,7 @@
  * @version 1.0.0
  */
 
-import logger from './logger';
+import logger from '../observability/logger';
 import { CorrelationIdManager } from './correlationId';
 import { ConversationContext } from '../types/SharedTypes';
 import { NovaSonicClient as EnhancedNovaSonicClient, TextProcessingResult } from '../client/';
@@ -114,9 +114,9 @@ export function getOrchestratorCapabilities(client: EnhancedNovaSonicClient): {
   return {
     orchestratorEnabled: client.isOrchestratorEnabled(),
     knowledgeBaseEnabled: integrationConfig.enabled && 
-                         integrationConfig.knowledgeBases.some(kb => kb.enabled),
+                         integrationConfig.knowledgeBases.some((kb: any) => kb.enabled),
     agentCoreEnabled: integrationConfig.enabled && 
-                     integrationConfig.agents.some(agent => agent.enabled),
+                     integrationConfig.agents.some((agent: any) => agent.enabled),
     integrationEnabled: integrationConfig.enabled,
   };
 }

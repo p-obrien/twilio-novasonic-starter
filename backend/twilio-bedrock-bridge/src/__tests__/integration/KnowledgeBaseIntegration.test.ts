@@ -99,8 +99,8 @@ describe('Knowledge Base Integration', () => {
         messages: [],
         state: 'active',
         metadata: {},
-        startTime: new Date(),
-        lastActivity: new Date(),
+        startTime: Date.now(),
+        lastActivity: Date.now(),
       };
     });
 
@@ -443,8 +443,8 @@ describe('Knowledge Base Integration', () => {
         messages: [],
         state: 'active',
         metadata: {},
-        startTime: new Date(),
-        lastActivity: new Date(),
+        startTime: Date.now(),
+        lastActivity: Date.now(),
       };
 
       const startTime = Date.now();

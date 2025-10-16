@@ -26,9 +26,9 @@ import {
 import { NodeHttp2Handler } from "@smithy/node-http-handler";
 
 import { KnowledgeResult, ValidationResult } from '../types/IntegrationTypes';
-import { BedrockClientError, createBedrockServiceError } from '../errors/ClientErrors';
+import { BedrockClientError, createBedrockServiceError, ErrorSeverity, ErrorContext } from '../errors/ClientErrors';
 import { config } from '../config/AppConfig';
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { DataProtection } from '../observability/dataProtection';
 
@@ -75,6 +75,8 @@ export interface IKnowledgeBaseClient {
  */
 export class KnowledgeBaseError extends BedrockClientError {
   readonly code = 'KNOWLEDGE_BASE_ERROR';
+  readonly severity = ErrorSeverity.MEDIUM;
+  readonly retryable = true;
   
   constructor(
     message: string,
@@ -82,7 +84,13 @@ export class KnowledgeBaseError extends BedrockClientError {
     sessionId?: string,
     cause?: Error
   ) {
-    super(message, sessionId, cause);
+    const context: ErrorContext = {
+      sessionId,
+      operation: 'knowledge_base_query',
+      timestamp: Date.now(),
+      metadata: { knowledgeBaseId }
+    };
+    super(message, context, cause);
   }
 }
 
@@ -223,7 +231,7 @@ export class KnowledgeBaseClient implements IKnowledgeBaseClient {
 
         // Convert AWS service errors to our error type
         if (this.isAwsServiceError(error)) {
-          throw createBedrockServiceError(error, sessionId);
+          throw createBedrockServiceError(error, 'knowledge_base_query', sessionId);
         }
 
         throw new KnowledgeBaseError(

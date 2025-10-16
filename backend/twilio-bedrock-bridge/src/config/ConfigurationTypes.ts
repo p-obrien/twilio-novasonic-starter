@@ -4,6 +4,7 @@
  */
 
 import { InferenceConfig } from '../types/SharedTypes';
+import { IntegrationConfig } from '../types/IntegrationTypes';
 
 // Server Configuration
 export interface ServerConfig {
@@ -30,6 +31,15 @@ export interface BedrockConfig {
   maxAudioQueueSize: number;
   maxChunksPerBatch: number;
   defaultAckTimeout: number;
+}
+
+// Audio Processing Configuration
+export interface AudioConfig {
+  enableImmediateStreaming: boolean;
+  inputBufferMs: number;
+  outputIntervalMs: number;
+  maxOutputBufferMs: number;
+  enableQualityAnalysis: boolean;
 }
 
 // Twilio Configuration
@@ -130,6 +140,8 @@ export interface UnifiedConfig {
   healthCheck: HealthCheckConfig;
   environment: EnvironmentConfig;
   inference: InferenceConfig;
+  audio: AudioConfig;
+  integration: IntegrationConfig;
 }
 
 // Configuration Schema for validation
@@ -219,5 +231,23 @@ export const DEFAULT_CONFIG: Partial<UnifiedConfig> = {
     isEKS: false,
     isLocal: true,
     platform: 'local',
+  },
+  audio: {
+    enableImmediateStreaming: true,
+    inputBufferMs: 0, // No input buffering for immediate streaming
+    outputIntervalMs: 10, // 10ms output intervals for faster consumption
+    maxOutputBufferMs: 100, // Reduced output buffer for lower latency
+    enableQualityAnalysis: false, // Disable for performance in immediate mode
+  },
+  integration: {
+    enabled: true,
+    knowledgeBases: [],
+    agents: [],
+    thresholds: {
+      intentConfidenceThreshold: 0.7,
+      knowledgeQueryTimeoutMs: 5000,
+      agentInvocationTimeoutMs: 10000,
+      maxRetries: 2,
+    },
   },
 };

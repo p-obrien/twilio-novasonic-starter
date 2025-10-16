@@ -25,6 +25,7 @@ import {
   HealthCheckConfig,
   EnvironmentConfig
 } from './ConfigurationTypes';
+import { IntegrationConfig } from '../types/IntegrationTypes';
 import { CONFIG_SCHEMA, getRequiredConfigKeys, getConfigKeyFromEnvVar } from './ConfigurationSchema';
 import { detectEnvironment, getOTELCapabilities } from '../utils/environment';
 import { DefaultInferenceConfiguration } from '../utils/constants';
@@ -172,6 +173,8 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
       healthCheck: this.loadHealthCheckConfig(),
       environment: this.loadEnvironmentConfig(env),
       inference: this.loadInferenceConfig(),
+      audio: this.loadAudioConfig(),
+      integration: this.loadIntegrationConfig(),
     };
 
     // Apply test defaults if in test environment
@@ -337,6 +340,59 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
       maxTokens: this.parseNumber(process.env.MAX_TOKENS, DefaultInferenceConfiguration.maxTokens),
       topP: this.parseFloat(process.env.TOP_P, DefaultInferenceConfiguration.topP),
       temperature: this.parseFloat(process.env.TEMPERATURE, DefaultInferenceConfiguration.temperature),
+    };
+  }
+
+  private loadAudioConfig() {
+    return {
+      enableImmediateStreaming: this.parseBoolean(process.env.ENABLE_IMMEDIATE_STREAMING, DEFAULT_CONFIG.audio!.enableImmediateStreaming),
+      inputBufferMs: this.parseNumber(process.env.AUDIO_INPUT_BUFFER_MS, DEFAULT_CONFIG.audio!.inputBufferMs),
+      outputIntervalMs: this.parseNumber(process.env.AUDIO_OUTPUT_INTERVAL_MS, DEFAULT_CONFIG.audio!.outputIntervalMs),
+      maxOutputBufferMs: this.parseNumber(process.env.AUDIO_MAX_OUTPUT_BUFFER_MS, DEFAULT_CONFIG.audio!.maxOutputBufferMs),
+      enableQualityAnalysis: this.parseBoolean(process.env.ENABLE_AUDIO_QUALITY_ANALYSIS, DEFAULT_CONFIG.audio!.enableQualityAnalysis),
+    };
+  }
+
+  private loadIntegrationConfig(): IntegrationConfig {
+    const knowledgeBases = [];
+    const agents = [];
+
+    // Load knowledge base configuration
+    const knowledgeBaseId = process.env.BEDROCK_KNOWLEDGE_BASE_ID;
+    if (knowledgeBaseId) {
+      knowledgeBases.push({
+        id: 'main-kb',
+        knowledgeBaseId: knowledgeBaseId,
+        name: 'Main Knowledge Base',
+        enabled: true,
+        priority: 1,
+      });
+    }
+
+    // Load agent configuration
+    const agentId = process.env.BEDROCK_AGENT_ID;
+    const agentAliasId = process.env.BEDROCK_AGENT_ALIAS_ID;
+    if (agentId && agentAliasId) {
+      agents.push({
+        id: 'main-agent',
+        agentId: agentId,
+        agentAliasId: agentAliasId,
+        name: 'Main Agent',
+        enabled: true,
+        priority: 1,
+      });
+    }
+
+    return {
+      enabled: this.parseBoolean(process.env.INTEGRATION_ENABLED, DEFAULT_CONFIG.integration!.enabled),
+      knowledgeBases,
+      agents,
+      thresholds: {
+        intentConfidenceThreshold: this.parseFloat(process.env.INTENT_CONFIDENCE_THRESHOLD, DEFAULT_CONFIG.integration!.thresholds.intentConfidenceThreshold),
+        knowledgeQueryTimeoutMs: this.parseNumber(process.env.KNOWLEDGE_QUERY_TIMEOUT_MS, DEFAULT_CONFIG.integration!.thresholds.knowledgeQueryTimeoutMs),
+        agentInvocationTimeoutMs: this.parseNumber(process.env.AGENT_INVOCATION_TIMEOUT_MS, DEFAULT_CONFIG.integration!.thresholds.agentInvocationTimeoutMs),
+        maxRetries: this.parseNumber(process.env.MAX_RETRIES, DEFAULT_CONFIG.integration!.thresholds.maxRetries),
+      },
     };
   }
 
@@ -763,6 +819,8 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
   public get healthCheck() { return this.config.healthCheck; }
   public get environment() { return this.config.environment; }
   public get inference() { return this.config.inference; }
+  public get audio() { return this.config.audio; }
+  public get integration() { return this.config.integration; }
 }
 
 // Export singleton instance

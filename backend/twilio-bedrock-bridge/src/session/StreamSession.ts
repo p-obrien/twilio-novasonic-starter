@@ -524,44 +524,8 @@ export class StreamSession {
       const initialStats = this.getAudioQueueStats();
 
       try {
-<<<<<<< HEAD
-        this.isActive = false;
-        
-        // Clear any pending timeouts to prevent memory leaks
-        if (this.processingTimeoutHandle) {
-          clearTimeout(this.processingTimeoutHandle);
-          this.processingTimeoutHandle = undefined;
-        }
-        
-        // Clear buffers and log cleanup stats
-        this.clearAudioQueue();
-        this.clearOutputBuffer();
-        
-        // Reset real-time state (realtimeMode stays true as it's always enabled)
-        this.userSpeaking = false;
-        this.lastUserActivity = undefined;
-        
-        // Reset processing state
-        this.isProcessingAudio = false;
-        
-        // Send session end to client
-        this.client.sendSessionEnd(this.sessionId);
-        
-        const duration = Date.now() - startTime;
-        logger.info(`Session closed successfully`, {
-          sessionId: this.sessionId,
-          duration: `${duration}ms`,
-          finalStats: {
-            inputQueueCleared: initialStats.queueLength,
-            outputBufferCleared: initialStats.outputBufferLength,
-            wasProcessing: initialStats.isProcessing
-          },
-          correlationId: CorrelationIdManager.getCurrentCorrelationId()
-        });
-=======
         await this.performSessionCleanup();
         this.logSuccessfulClose(startTime, initialStats);
->>>>>>> origin/main
       } catch (error) {
         this.handleCloseError(error, startTime, initialStats);
         throw new SessionError('Failed to close session cleanly', this.sessionId, error as Error);

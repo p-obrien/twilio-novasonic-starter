@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { ConversationContext } from '../types/SharedTypes';
 import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../client/';

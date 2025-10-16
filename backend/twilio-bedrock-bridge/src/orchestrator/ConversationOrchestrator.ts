@@ -16,7 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { ConversationContext, ConversationMessage } from '../types/SharedTypes';
 import { IntentClassification, KnowledgeResult, AgentResponse } from '../types/IntegrationTypes';
@@ -330,7 +330,7 @@ export class ConversationOrchestrator implements IConversationOrchestrator {
 
     try {
       // Get enabled knowledge bases from config
-      const enabledKnowledgeBases = config.integration.knowledgeBases.filter(kb => kb.enabled);
+      const enabledKnowledgeBases = config.integration.knowledgeBases.filter((kb: any) => kb.enabled);
       
       if (enabledKnowledgeBases.length === 0) {
         logger.warn('No enabled knowledge bases found, falling back to Nova Sonic', {
@@ -404,7 +404,7 @@ export class ConversationOrchestrator implements IConversationOrchestrator {
 
     try {
       // Get enabled agents from config
-      const enabledAgents = config.integration.agents.filter(agent => agent.enabled);
+      const enabledAgents = config.integration.agents.filter((agent: any) => agent.enabled);
       
       if (enabledAgents.length === 0) {
         logger.warn('No enabled agents found, falling back to Nova Sonic', {
@@ -654,8 +654,8 @@ export class ConversationOrchestrator implements IConversationOrchestrator {
         messages: [],
         state: 'active',
         metadata: partialContext?.metadata || {},
-        startTime: new Date(),
-        lastActivity: new Date(),
+        startTime: Date.now(),
+        lastActivity: Date.now(),
       };
       
       this.conversationContexts.set(sessionId, context);
@@ -667,7 +667,7 @@ export class ConversationOrchestrator implements IConversationOrchestrator {
       });
     } else {
       // Update last activity
-      context.lastActivity = new Date();
+      context.lastActivity = Date.now();
       
       // Merge any provided context updates
       if (partialContext) {
@@ -678,7 +678,8 @@ export class ConversationOrchestrator implements IConversationOrchestrator {
       }
     }
 
-    return context;
+    // TypeScript assertion: context is guaranteed to be defined here
+    return context as ConversationContext;
   }
 
   /**
@@ -693,7 +694,8 @@ export class ConversationOrchestrator implements IConversationOrchestrator {
       id: randomUUID(),
       role: 'user',
       content: userInput,
-      timestamp: new Date(),
+      timestamp: Date.now(),
+      type: 'text'
     });
 
     // Add assistant response
@@ -701,7 +703,8 @@ export class ConversationOrchestrator implements IConversationOrchestrator {
       id: randomUUID(),
       role: 'assistant',
       content: assistantResponse,
-      timestamp: new Date(),
+      timestamp: Date.now(),
+      type: 'text'
     });
 
     // Keep only the last 10 messages to prevent memory growth
@@ -709,7 +712,7 @@ export class ConversationOrchestrator implements IConversationOrchestrator {
       context.messages = context.messages.slice(-10);
     }
 
-    context.lastActivity = new Date();
+    context.lastActivity = Date.now();
   }
 
   /**

@@ -11,7 +11,7 @@
 
 import { CloudWatchMetricsService, MetricDimensions } from './cloudWatchMetrics';
 import { metricsUtils } from './metrics';
-import logger from '../utils/logger';
+import logger from './logger';
 
 // ============================================================================
 // TYPES AND INTERFACES

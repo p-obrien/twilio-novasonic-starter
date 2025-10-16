@@ -17,9 +17,9 @@
 
 import { KnowledgeBaseClient, KnowledgeBaseError } from './KnowledgeBaseClient';
 import { KnowledgeResult, KnowledgeBaseConfig } from '../types/IntegrationTypes';
-import { BedrockClientError } from '../errors/ClientErrors';
+import { BedrockClientError, ErrorSeverity, ErrorContext } from '../errors/ClientErrors';
 import { config } from '../config/AppConfig';
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { setTimeoutWithCorrelation } from '../utils/asyncCorrelation';
 
@@ -73,13 +73,21 @@ export interface KnowledgeQueryOptions {
  */
 export class KnowledgeServiceError extends BedrockClientError {
   readonly code = 'KNOWLEDGE_SERVICE_ERROR';
+  readonly severity = ErrorSeverity.MEDIUM;
+  readonly retryable = true;
   
   constructor(
     message: string,
     sessionId?: string,
     cause?: Error
   ) {
-    super(message, sessionId, cause);
+    const context: ErrorContext = {
+      sessionId,
+      operation: 'knowledge_service_operation',
+      timestamp: Date.now(),
+      metadata: {}
+    };
+    super(message, context, cause);
   }
 }
 
@@ -109,7 +117,7 @@ export class KnowledgeBaseService {
 
   constructor(knowledgeBaseClient?: KnowledgeBaseClient) {
     this.knowledgeBaseClient = knowledgeBaseClient || new KnowledgeBaseClient();
-    this.enabledKnowledgeBases = config.integration.knowledgeBases.filter(kb => kb.enabled);
+    this.enabledKnowledgeBases = config.integration.knowledgeBases.filter((kb: any) => kb.enabled);
 
     logger.info('Knowledge Base Service initialized', {
       enabledKnowledgeBasesCount: this.enabledKnowledgeBases.length,

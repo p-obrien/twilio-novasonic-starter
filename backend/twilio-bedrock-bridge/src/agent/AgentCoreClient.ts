@@ -26,9 +26,9 @@ import {
 import { NodeHttp2Handler } from "@smithy/node-http-handler";
 
 import { AgentResponse, ValidationResult } from '../types/IntegrationTypes';
-import { BedrockClientError, createBedrockServiceError } from '../errors/ClientErrors';
+import { BedrockClientError, createBedrockServiceError, ErrorSeverity, ErrorContext } from '../errors/ClientErrors';
 import { config } from '../config/AppConfig';
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { DataProtection } from '../observability/dataProtection';
 
@@ -74,6 +74,8 @@ export interface IAgentCoreClient {
  */
 export class AgentCoreError extends BedrockClientError {
   readonly code = 'AGENT_CORE_ERROR';
+  readonly severity = ErrorSeverity.MEDIUM;
+  readonly retryable = true;
   
   constructor(
     message: string,
@@ -81,7 +83,13 @@ export class AgentCoreError extends BedrockClientError {
     sessionId?: string,
     cause?: Error
   ) {
-    super(message, sessionId, cause);
+    const context: ErrorContext = {
+      sessionId,
+      operation: 'agent_core_operation',
+      timestamp: Date.now(),
+      metadata: { agentId }
+    };
+    super(message, context, cause);
   }
 }
 

@@ -1,20 +1,11 @@
 // Node.js built-ins
 import http, { IncomingMessage } from 'http';
 
-<<<<<<< HEAD
-import logger from '../utils/logger';
-import { NovaSonicClient } from '../client/';
-import { DefaultAudioInputConfiguration, DefaultAudioOutputConfiguration, DefaultTextConfiguration } from '../utils/constants';
-import { CorrelationIdManager } from '../utils/correlationId';
-import { setTimeoutWithCorrelation } from '../utils/asyncCorrelation';
-import { config } from '../config/AppConfig';
-=======
 // External packages
 import { WebSocketServer, WebSocket } from 'ws';
 
 // Internal modules - audio
 import { AudioBufferManager } from '../audio/AudioBufferManager';
->>>>>>> origin/main
 import {
   processBedrockAudioOutput,
   processTwilioAudioInput
@@ -34,10 +25,6 @@ import logger from '../observability/logger';
 import { safeTrace } from '../observability/safeTracing';
 import { SessionMetrics } from '../observability/sessionMetrics';
 import { smartSampler, TracingUtils } from '../observability/smartSampling';
-<<<<<<< HEAD
-import { safeTrace } from '../observability/safeTracing';
-import { processDTMFCommand } from '../utils/orchestratorIntegration';
-=======
 import { WebSocketMetrics } from '../observability/websocketMetrics';
 
 // Internal modules - security
@@ -52,7 +39,6 @@ import { setTimeoutWithCorrelation } from '../utils/asyncCorrelation';
 import { DefaultAudioInputConfiguration, DefaultAudioOutputConfiguration, DefaultTextConfiguration } from '../utils/constants';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { sanitizeInput } from '../utils/ValidationUtils';
->>>>>>> origin/main
 
 /**
  * Maps exported for potential external use (kept for parity with original server implementation).
@@ -63,64 +49,16 @@ export const wsIdToSessionId: Map<string, string> = new Map();
 
 // Enhanced Bedrock client with orchestrator capabilities
 // Uses default AWS credential chain (IAM roles in ECS, profiles locally)
-const bedrockClient = new NovaSonicClient({
+const bedrockClient = new NovaSonicBidirectionalStreamClient({
   clientConfig: { 
     region: config.bedrock?.region || 'us-east-1'
     // credentials will use default credential chain
   },
   bedrock: {
-<<<<<<< HEAD
-    region: config.bedrock.region,
-    modelId: config.bedrock.modelId
-  },
-  // Enable orchestrator if integration is configured
-  enableOrchestrator: config.integration.enabled,
-  enableOrchestratorDebug: config.logging.level === 'DEBUG' || config.logging.level === 'TRACE'
-=======
     region: config.bedrock?.region || 'us-east-1',
     modelId: config.bedrock?.modelId || 'amazon.nova-sonic-v1:0'
   }
->>>>>>> origin/main
 });
-
-/**
- * Process text input through the orchestrator (example usage)
- * This demonstrates how text-based interactions can be routed through
- * the knowledge base, agent, or conversation systems.
- * 
- * @param textInput The text input to process
- * @param sessionId The session identifier
- * @returns Promise resolving to the processed response
- */
-async function processTextThroughOrchestrator(textInput: string, sessionId: string): Promise<string> {
-  try {
-    if (bedrockClient.isOrchestratorEnabled()) {
-      logger.debug('Processing text through orchestrator', {
-        sessionId,
-        inputLength: textInput.length,
-      });
-
-      const result = await bedrockClient.processTextInput(textInput, sessionId);
-      
-      logger.info('Text processed successfully', {
-        sessionId,
-        source: result.source,
-        responseLength: result.response.length,
-      });
-
-      return result.response;
-    } else {
-      logger.debug('Orchestrator not enabled, using fallback response', { sessionId });
-      return 'I understand your message. The orchestrator integration is not currently enabled.';
-    }
-  } catch (error) {
-    logger.error('Failed to process text through orchestrator', {
-      sessionId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return 'I apologize, but I encountered an issue processing your request.';
-  }
-}
 
 /**
  * Initialize WebSocket server and attach Twilio Media Streams handlers.
@@ -216,8 +154,6 @@ export function initWebsocketServer(server: http.Server): void {
       audioBuffer.length = 0;
     };
 
-
-
     // Function to flush buffered audio to Bedrock
     const flushAudioBuffer = async () => {
       if (audioBuffer.length === 0) return;
@@ -241,17 +177,11 @@ export function initWebsocketServer(server: http.Server): void {
         }
 
         // Send combined buffer to Bedrock (non-blocking)
-<<<<<<< HEAD
-        bedrockClient.streamAudioChunk(sessionId, combinedBuffer).catch((streamErr: any) => {
-          logger.warn('Failed to forward buffered audio chunk to Bedrock', { client: tempWsId, sessionId, err: streamErr });
-        });
-=======
         if (sessionId) {
           bedrockClient.streamAudioChunk(sessionId, combinedBuffer).catch((streamErr) => {
             logger.warn('Failed to forward buffered audio chunk to Bedrock', { client: tempWsId, sessionId, err: streamErr });
           });
         }
->>>>>>> origin/main
 
         logger.debug('Forwarded buffered audio chunk to Bedrock', {
           client: tempWsId,
@@ -303,7 +233,6 @@ export function initWebsocketServer(server: http.Server): void {
     ws._twilioOutSeq = 0;
     ws.twilioStreamSid = undefined;
     ws.twilioSampleRate = undefined;
-
 
     ws.on('message', async (raw: Buffer | string) => {
       // Ensure we're running within the WebSocket's correlation context
@@ -664,30 +593,6 @@ export function initWebsocketServer(server: http.Server): void {
           break;
         case 'dtmf':
           logger.debug('Received Twilio DTMF event', { client: tempWsId, dtmf: msg.dtmf });
-          
-          // Example: DTMF could trigger orchestrator-based text processing
-          // This demonstrates how DTMF commands can be routed through the orchestrator
-          if (msg.dtmf && bedrockClient.isOrchestratorEnabled()) {
-            const dtmfDigit = msg.dtmf.digit;
-            
-            // Use the utility function to process DTMF commands
-            processDTMFCommand(bedrockClient, dtmfDigit, sessionId)
-              .then(response => {
-                logger.info('DTMF command processed through orchestrator', { 
-                  sessionId, 
-                  dtmfDigit,
-                  response: response.substring(0, 100) + (response.length > 100 ? '...' : '')
-                });
-                // In a real implementation, you might:
-                // 1. Convert this response to speech using TTS
-                // 2. Send it back through the WebSocket as audio
-                // 3. Store it for later retrieval
-                // 4. Trigger additional workflows based on the response
-              })
-              .catch(error => {
-                logger.error('DTMF command processing failed', { sessionId, dtmfDigit, error });
-              });
-          }
           break;
 
         default:
@@ -726,57 +631,36 @@ export function initWebsocketServer(server: http.Server): void {
         webSocketSecurity.removeActiveSession(ws.callSid);
         logger.debug('Removed active session from security tracking', { callSid: ws.callSid });
       }
-      
-      // Clean up audio buffer for this session
-      try {
-        const audioBufferManager = AudioBufferManager.getInstance();
-        audioBufferManager.flushAndRemove(sessionId);
-      } catch (e) {
-        logger.warn('Failed to clean up audio buffer on websocket close', { sessionId, err: e });
-      }
 
-      // Clean up WebSocket metrics tracking
-      try {
-        WebSocketMetrics.onDisconnection(ws);
-      } catch (e) {
-        logger.warn('Failed to clean up WebSocket metrics', { sessionId, err: e });
-      }
-      
-      // Clean up session tracking
-      try {
-        SessionMetrics.endSession(sessionId || tempWsId);
-      } catch (e) {
-        logger.warn('Failed to clean up session tracking', { sessionId, err: e });
-      }
-
-      // Clean up Bedrock session associated with this websocket if present
-      try {
-        if (sessionId && bedrockClient.isSessionActive(sessionId)) {
-          logger.debug('Forcing close of Bedrock session due to websocket close', { sessionId, wsId: ws.id, wsReadyState: ws.readyState });
+      // Clean up Bedrock session
+      if (sessionId && bedrockClient.isSessionActive(sessionId)) {
+        try {
           bedrockClient.forceCloseSession(sessionId);
-          logger.info('Forced closed Bedrock session for websocket', { sessionId });
-        } else {
-          logger.debug('No active Bedrock session to force-close on websocket close', { sessionId });
+          logger.info('Ended Bedrock session', { sessionId });
+        } catch (endErr) {
+          logger.warn('Failed to end Bedrock session', { sessionId, err: endErr });
         }
-      } catch (e) {
-        logger.warn('Failed to force close Bedrock session on websocket close', { sessionId, err: e, inspected: (e as any)?.stack ?? null });
       }
 
-      // Remove all event listeners to prevent memory leaks
-      try {
-        ws.removeAllListeners?.();
-      } catch (e) {
-        logger.warn('Failed to remove WebSocket event listeners', { sessionId, err: e });
-      }
+      // Clean up session metrics
+      SessionMetrics.endSession(sessionId || tempWsId);
+      
+      // Clean up WebSocket metrics
+      WebSocketMetrics.onDisconnection(ws);
       });
     });
 
-    ws.on('error', (err: Error) => {
+    ws.on('error', (error: Error) => {
+      // Run error handler within correlation context
       CorrelationIdManager.runWithContext(ws.correlationContext || { correlationId: 'unknown', source: 'websocket', timestamp: Date.now() }, () => {
-        logger.warn('WebSocket error', { client: tempWsId, err });
+        logger.error('WebSocket error', { 
+          client: sessionId || tempWsId, 
+          error: extractErrorDetails(error) 
+        });
       });
     });
-
     });
   });
+
+  logger.info('WebSocket server initialized on /media path');
 }

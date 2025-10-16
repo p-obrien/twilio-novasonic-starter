@@ -154,64 +154,8 @@ export function normalizeTwilioSequenceNumber(msg: any): string | undefined {
 }
 
 /* ============================
-<<<<<<< HEAD
-   Conversation Context Types
-   ============================ */
-
-/**
- * Conversation context for tracking session state and history
- */
-export interface ConversationContext {
-  /** Unique conversation identifier */
-  conversationId: string;
-  /** Session identifier from Twilio */
-  sessionId?: string;
-  /** Stream identifier from Twilio */
-  streamSid?: string;
-  /** Conversation history */
-  messages: ConversationMessage[];
-  /** Current conversation state */
-  state: ConversationState;
-  /** Metadata about the conversation */
-  metadata: Record<string, any>;
-  /** Timestamp when conversation started */
-  startTime: Date;
-  /** Timestamp of last activity */
-  lastActivity: Date;
-}
-
-/**
- * Individual message in conversation history
- */
-export interface ConversationMessage {
-  /** Message identifier */
-  id: string;
-  /** Message role (user, assistant, system) */
-  role: 'user' | 'assistant' | 'system';
-  /** Message content */
-  content: string;
-  /** Message timestamp */
-  timestamp: Date;
-  /** Optional metadata */
-  metadata?: Record<string, any>;
-}
-
-/**
- * Conversation state enumeration
- */
-export type ConversationState = 
-  | 'initializing'
-  | 'active'
-  | 'waiting_for_input'
-  | 'processing'
-  | 'ending'
-  | 'ended'
-  | 'error';
-=======
    WebSocket Extensions
    ============================ */
-
-
 
 /**
  * Extended WebSocket interface with Twilio-specific properties
@@ -235,6 +179,16 @@ export interface ExtendedWebSocket extends WebSocket {
 }
 
 /**
+ * Error severity levels
+ */
+export enum ErrorSeverity {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  CRITICAL = 'critical'
+}
+
+/**
  * Error context interface for consistent error handling
  */
 export interface ErrorContext {
@@ -244,7 +198,52 @@ export interface ErrorContext {
   callSid?: string;
   /** Correlation ID */
   correlationId?: string;
+  /** Error severity level */
+  severity?: ErrorSeverity;
   /** Additional context metadata */
   metadata?: Record<string, any>;
 }
->>>>>>> origin/main
+
+/**
+ * Conversation context for managing conversation state
+ */
+export interface ConversationContext {
+  /** Unique conversation identifier */
+  conversationId: string;
+  /** Current session ID */
+  sessionId?: string;
+  /** Call SID from Twilio */
+  callSid?: string;
+  /** Stream SID from Twilio */
+  streamSid?: string;
+  /** Correlation ID for tracing */
+  correlationId?: string;
+  /** Conversation history */
+  messages: ConversationMessage[];
+  /** Current conversation state */
+  state: 'active' | 'paused' | 'ended';
+  /** Conversation start time */
+  startTime: number;
+  /** Last activity timestamp */
+  lastActivity: number;
+  /** Metadata for the conversation */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Individual conversation message
+ */
+export interface ConversationMessage {
+  /** Unique message identifier */
+  id: string;
+  /** Message role */
+  role: 'user' | 'assistant' | 'system';
+  /** Message content */
+  content: string;
+  /** Message timestamp */
+  timestamp: number;
+  /** Message type */
+  type: 'text' | 'audio';
+  /** Additional metadata */
+  metadata?: Record<string, any>;
+}

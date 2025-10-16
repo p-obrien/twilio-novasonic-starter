@@ -9,7 +9,7 @@
  * @version 1.0.0
  */
 
-import logger from '../utils/logger';
+import logger from './logger';
 import { IntegrationError, isIntegrationError, extractErrorDetails } from '../errors/ClientErrors';
 import { IntegrationMetrics } from './integrationMetrics';
 import { CorrelationIdManager } from '../utils/correlationId';

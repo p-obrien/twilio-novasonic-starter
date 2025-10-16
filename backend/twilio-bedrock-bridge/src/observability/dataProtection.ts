@@ -10,7 +10,7 @@
  * @version 1.0.0
  */
 
-import logger from '../utils/logger';
+import logger from './logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 
 // ============================================================================
