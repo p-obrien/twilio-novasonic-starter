@@ -13,40 +13,55 @@ const LEVEL_PRIORITIES: Record<LogLevel, number> = {
   TRACE: 4
 };
 
-const rawLevel = (process.env.LOG_LEVEL || 'INFO').toUpperCase();
-const CURRENT_LEVEL: LogLevel = (['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'].includes(rawLevel)
-  ? (rawLevel as LogLevel)
-  : 'INFO');
+/**
+ * Determine current log level dynamically. Tests set process.env.LOG_LEVEL in
+ * beforeEach, and some consumers expect logger to respect env changes at runtime.
+ * For production use this is inexpensive; for very hot paths we cache in-memory.
+ */
+function getCurrentLevel(): LogLevel {
+  const rawLevel = (process.env.LOG_LEVEL || 'INFO').toUpperCase();
+  return (['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'].includes(rawLevel) ? (rawLevel as LogLevel) : 'INFO');
+}
 
 function isLevelEnabled(level: LogLevel): boolean {
-  return LEVEL_PRIORITIES[level] <= LEVEL_PRIORITIES[CURRENT_LEVEL];
+  const current = getCurrentLevel();
+  return LEVEL_PRIORITIES[level] <= LEVEL_PRIORITIES[current];
+}
+
+// Cache for trace context to avoid repeated expensive operations
+let cachedTraceContext: any = null;
+let lastContextCheck = 0;
+const CONTEXT_CACHE_TTL = 100; // Cache for 100ms to reduce overhead
+
+// Function to clear trace context cache
+function clearTraceContextCache(): void {
+  cachedTraceContext = null;
+  lastContextCheck = 0;
 }
 
 function getTraceContext() {
+  const now = Date.now();
+  
+  // Use cached context if it's recent enough (for high-frequency operations)
+  if (cachedTraceContext && (now - lastContextCheck) < CONTEXT_CACHE_TTL) {
+    return cachedTraceContext;
+  }
+  
   const traceContext: any = {};
   
   // Always get correlation context (this works independently of OTEL)
   const correlationContext = CorrelationIdManager.getCurrentContext();
   if (correlationContext) {
-    traceContext.correlationId = correlationContext.correlationId;
-    traceContext.source = correlationContext.source;
-    
-    // Add Twilio-specific context
-    if (correlationContext.callSid) {
-      traceContext.callSid = correlationContext.callSid;
-    }
-    if (correlationContext.sessionId) {
-      traceContext.sessionId = correlationContext.sessionId;
-    }
-    if (correlationContext.accountSid) {
-      traceContext.accountSid = correlationContext.accountSid;
-    }
-    if (correlationContext.streamSid) {
-      traceContext.streamSid = correlationContext.streamSid;
-    }
-    if (correlationContext.parentCorrelationId) {
-      traceContext.parentCorrelationId = correlationContext.parentCorrelationId;
-    }
+    // Use object spread for better performance than individual assignments
+    Object.assign(traceContext, {
+      correlationId: correlationContext.correlationId,
+      source: correlationContext.source,
+      ...(correlationContext.callSid && { callSid: correlationContext.callSid }),
+      ...(correlationContext.sessionId && { sessionId: correlationContext.sessionId }),
+      ...(correlationContext.accountSid && { accountSid: correlationContext.accountSid }),
+      ...(correlationContext.streamSid && { streamSid: correlationContext.streamSid }),
+      ...(correlationContext.parentCorrelationId && { parentCorrelationId: correlationContext.parentCorrelationId })
+    });
   }
   
   // Only add OTEL trace information if available and working
@@ -55,9 +70,11 @@ function getTraceContext() {
       const activeSpan = trace.getActiveSpan();
       if (activeSpan) {
         const spanContext = activeSpan.spanContext();
-        traceContext.traceId = spanContext.traceId;
-        traceContext.spanId = spanContext.spanId;
-        traceContext.traceFlags = spanContext.traceFlags;
+        Object.assign(traceContext, {
+          traceId: spanContext.traceId,
+          spanId: spanContext.spanId,
+          traceFlags: spanContext.traceFlags
+        });
       }
     } catch (error) {
       // OTEL failed at runtime - enable fallback mode
@@ -65,6 +82,10 @@ function getTraceContext() {
       enableFallbackMode(`OTEL runtime error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+  
+  // Cache the result for high-frequency operations
+  cachedTraceContext = traceContext;
+  lastContextCheck = now;
   
   return traceContext;
 }
@@ -116,7 +137,23 @@ function formatMessage(level: LogLevel, message: any, meta?: any) {
 }
 
 function logWithSpan(level: LogLevel, message: any, meta?: any) {
-  if (!isLevelEnabled(level)) return;
+  // Diagnostic hook for tests — logs are visible on stderr/stdout but tests
+  // capture console.log/console.error/console.warn. Use console.debug so we can
+  // inspect flow without interfering with mockConsole in tests.
+  try {
+    console.debug && console.debug('[TEST-DEBUG] logWithSpan - entry', level, typeof message === 'string' ? message : '[obj]');
+  } catch (e) {
+    // Swallow console errors that can occur when Jest environment is torn down
+  }
+
+  if (!isLevelEnabled(level)) {
+    try {
+      console.debug && console.debug('[TEST-DEBUG] logWithSpan - level disabled', level);
+    } catch (e) {
+      // ignore
+    }
+    return;
+  }
   
   // Try to add span events if OTEL is available
   if (isOtelAvailable() && !isFallbackMode()) {
@@ -160,16 +197,21 @@ function logWithSpan(level: LogLevel, message: any, meta?: any) {
   
   // Always output the log message regardless of OTEL status
   const formattedMessage = formatMessage(level, message, meta);
+  try {
+    console.debug && console.debug('[TEST-DEBUG] logWithSpan - formattedMessage ready', level, formattedMessage.slice ? formattedMessage.slice(0, 200) : String(formattedMessage));
+  } catch (e) {
+    // Swallow console errors that can occur when Jest environment is torn down
+  }
   
   switch (level) {
     case 'ERROR':
-      console.error(formattedMessage);
+      try { console.error && console.error(formattedMessage); } catch (e) { /* ignore */ }
       break;
     case 'WARN':
-      console.warn(formattedMessage);
+      try { console.warn && console.warn(formattedMessage); } catch (e) { /* ignore */ }
       break;
     default:
-      console.log(formattedMessage);
+      try { console.log && console.log(formattedMessage); } catch (e) { /* ignore */ }
   }
 }
 
@@ -247,4 +289,4 @@ const logger = {
 };
 
 export default logger;
-export { logger, isLevelEnabled, LogLevel };
+export { logger, isLevelEnabled, LogLevel, clearTraceContextCache };

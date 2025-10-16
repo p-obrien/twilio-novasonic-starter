@@ -19,8 +19,9 @@
  * ```
  */
  
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 import { audioQualityAnalyzer } from './AudioQualityAnalyzer';
+import { BufferPool } from './BufferPool';
  
 /**
  * Configuration options for AudioBuffer behavior
@@ -55,6 +56,9 @@ export interface WebSocketLike {
 export class AudioBuffer {
   /** Internal buffer storing accumulated audio data */
   private buffer: Buffer = Buffer.alloc(0);
+
+  /** Pooled buffers currently in use */
+  private pooledBuffers: Buffer[] = [];
  
   /** Size of each output frame in bytes */
   private frameSize: number;
@@ -73,6 +77,9 @@ export class AudioBuffer {
  
   /** Current sequence number for frame ordering */
   private seq = 0;
+
+  /** Buffer pool for efficient memory management */
+  private bufferPool: BufferPool;
  
   /**
    * Creates a new AudioBuffer for managing consistent frame delivery.
@@ -99,6 +106,9 @@ export class AudioBuffer {
  
     // Initialize sequence number from WebSocket state
     this.seq = Number(ws._twilioOutSeq || 0);
+
+    // Initialize buffer pool
+    this.bufferPool = BufferPool.getInstance();
  
     logger.debug('AudioBuffer initialized', {
       sessionId: this.sessionId,
@@ -320,6 +330,9 @@ export class AudioBuffer {
       remainingBufferBytes: this.buffer.length
     });
  
+    // Release any pooled buffers
+    this.releasePooledBuffers();
+
     // Notify Twilio that the audio stream has ended
     this.sendCompletionMark();
   }
@@ -376,6 +389,7 @@ export class AudioBuffer {
  
     // Clear the buffer and stop transmission
     this.buffer = Buffer.alloc(0);
+    this.releasePooledBuffers();
     this.stop('flushed');
   }
  
@@ -412,6 +426,16 @@ export class AudioBuffer {
     }
   }
  
+  /**
+   * Releases all pooled buffers back to the buffer pool
+   */
+  private releasePooledBuffers(): void {
+    for (const buffer of this.pooledBuffers) {
+      this.bufferPool.release(buffer);
+    }
+    this.pooledBuffers.length = 0;
+  }
+
   /**
    * Returns the current status of the audio buffer.
    * 

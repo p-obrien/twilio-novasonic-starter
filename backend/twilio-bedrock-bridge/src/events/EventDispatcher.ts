@@ -4,8 +4,30 @@
  * Handles event normalization, dispatching, and handler management
  */
 
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 import { SessionData } from '../session/SessionManager';
+import { isObject } from '../types/TypeGuards';
+
+/**
+ * Event data structure for normalized events
+ */
+export interface NormalizedEventData {
+  contentId?: string;
+  contentName?: string;
+  additionalModelFields?: string;
+  parsedAdditionalModelFields?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
+ * Event handler function type
+ */
+export type EventHandler<T = unknown> = (data: T) => void;
+
+/**
+ * Generic event handler that receives event type and data
+ */
+export type GenericEventHandler = (event: { type: string; data: unknown }) => void;
 
 export class EventDispatcher {
   /**
@@ -13,8 +35,8 @@ export class EventDispatcher {
    * - Ensures both contentId and contentName are populated
    * - Attempts to parse additionalModelFields into parsedAdditionalModelFields
    */
-  normalizeEventData(obj: any): any {
-    if (!obj || typeof obj !== 'object') return obj;
+  normalizeEventData(obj: unknown): NormalizedEventData {
+    if (!isObject(obj)) return obj as NormalizedEventData;
     
     try {
       const id = obj.contentId ?? obj.contentName;
@@ -41,7 +63,7 @@ export class EventDispatcher {
   /**
    * Dispatches events to registered handlers for a specific session
    */
-  dispatchEvent(sessionId: string, session: SessionData, eventType: string, data: any): void {
+  dispatchEvent(sessionId: string, session: SessionData, eventType: string, data: unknown): void {
     if (!session) {
       logger.warn(`Cannot dispatch event ${eventType}: session ${sessionId} not found`);
       return;
@@ -62,7 +84,7 @@ export class EventDispatcher {
   /**
    * Publishes event to the session's response subject
    */
-  private publishToResponseSubject(sessionId: string, session: SessionData, eventType: string, data: any): void {
+  private publishToResponseSubject(sessionId: string, session: SessionData, eventType: string, data: NormalizedEventData): void {
     try {
       if (session.responseSubject && typeof session.responseSubject.next === 'function') {
         session.responseSubject.next({ type: eventType, data });
@@ -75,7 +97,7 @@ export class EventDispatcher {
   /**
    * Dispatches to specific event type handlers
    */
-  private dispatchToEventHandlers(sessionId: string, session: SessionData, eventType: string, data: any): void {
+  private dispatchToEventHandlers(sessionId: string, session: SessionData, eventType: string, data: NormalizedEventData): void {
     const handler = session.responseHandlers.get(eventType);
     if (handler) {
       try {
@@ -89,7 +111,7 @@ export class EventDispatcher {
   /**
    * Dispatches to generic 'any' event handlers
    */
-  private dispatchToAnyHandlers(sessionId: string, session: SessionData, eventType: string, data: any): void {
+  private dispatchToAnyHandlers(sessionId: string, session: SessionData, eventType: string, data: NormalizedEventData): void {
     const anyHandler = session.responseHandlers.get('any');
     if (anyHandler) {
       try {
@@ -103,7 +125,14 @@ export class EventDispatcher {
   /**
    * Registers an event handler for a session
    */
-  registerEventHandler(session: SessionData, eventType: string, handler: (data: any) => void): void {
-    session.responseHandlers.set(eventType, handler);
+  registerEventHandler<T = unknown>(session: SessionData, eventType: string, handler: EventHandler<T>): void {
+    session.responseHandlers.set(eventType, handler as EventHandler<unknown>);
+  }
+
+  /**
+   * Registers a generic event handler that receives all events with their types
+   */
+  registerGenericEventHandler(session: SessionData, handler: GenericEventHandler): void {
+    session.responseHandlers.set('any', handler as EventHandler<unknown>);
   }
 }

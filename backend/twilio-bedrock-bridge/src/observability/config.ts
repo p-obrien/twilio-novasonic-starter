@@ -193,13 +193,15 @@ export function loadObservabilityConfig(): ObservabilityConfig {
 // Export singleton instance
 export const observabilityConfig = loadObservabilityConfig();
 
-// Log configuration on startup
-console.log('Observability configuration loaded:', {
-  service: `${observabilityConfig.serviceName}@${observabilityConfig.serviceVersion}`,
-  environment: observabilityConfig.environment,
-  logging: observabilityConfig.logging.level,
-  xray: observabilityConfig.tracing.enableXRay,
-  cloudWatch: observabilityConfig.cloudWatch.enabled,
-  cloudWatchRegion: observabilityConfig.cloudWatch.region,
-  customMetrics: observabilityConfig.metrics.enableCustomMetrics,
-});
+// Log configuration on startup (skip in test environment)
+if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
+  console.log('Observability configuration loaded:', {
+    service: `${observabilityConfig.serviceName}@${observabilityConfig.serviceVersion}`,
+    environment: observabilityConfig.environment,
+    logging: observabilityConfig.logging.level,
+    xray: observabilityConfig.tracing.enableXRay,
+    cloudWatch: observabilityConfig.cloudWatch.enabled,
+    cloudWatchRegion: observabilityConfig.cloudWatch.region,
+    customMetrics: observabilityConfig.metrics.enableCustomMetrics,
+  });
+}

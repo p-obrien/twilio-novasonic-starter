@@ -30,7 +30,7 @@ const lazyXRay = new LazyXRayTracer();
 
 import { currentEnvironment, otelCapabilities } from '../utils/environment';
 import { observabilityConfig } from './config';
-import logger from '../utils/logger';
+import logger from './logger';
 
 export interface XRayTraceContext {
   traceId: string;

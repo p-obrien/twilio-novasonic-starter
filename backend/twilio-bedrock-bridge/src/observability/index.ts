@@ -12,6 +12,30 @@ export { unifiedTracing, UnifiedTracing } from './unifiedTracing';
 export { isTracingAvailable, getActiveTracer } from './tracing';
 export { memoryMonitor, MemoryMonitor } from './memoryMonitor';
 export { 
+  memoryPressureMonitor, 
+  MemoryPressureMonitor, 
+  MemoryPressureLevel,
+  type MemoryPressureStatus,
+  type AdaptiveBehaviorStats 
+} from './memoryPressureMonitor';
+export { 
+  performanceMonitor,
+  PerformanceMonitor,
+  MetricType,
+  type PerformanceMeasurement,
+  type PerformanceStats,
+  type BenchmarkConfig,
+  type BenchmarkResult
+} from './performanceMonitor';
+export { 
+  performanceBenchmarks,
+  PerformanceBenchmarks,
+  type BenchmarkSuiteConfig,
+  type BenchmarkSuiteResult,
+  type BenchmarkHandle,
+  type SimpleBenchmarkResult
+} from './performanceBenchmarks';
+export { 
   initializeObservability, 
   shutdownObservability, 
   getObservabilityStatus, 

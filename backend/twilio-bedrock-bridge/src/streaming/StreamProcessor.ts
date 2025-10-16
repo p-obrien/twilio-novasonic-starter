@@ -8,7 +8,7 @@ import { InvokeModelWithBidirectionalStreamInput } from "@aws-sdk/client-bedrock
 import { firstValueFrom } from 'rxjs';
 import { take, filter } from 'rxjs/operators';
 import { inspect } from 'util';
-import logger from '../utils/logger';
+import logger from '../observability/logger';
 import { SessionData } from '../session/SessionManager';
 import { EventDispatcher } from '../events/EventDispatcher';
 

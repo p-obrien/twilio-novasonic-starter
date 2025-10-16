@@ -5,18 +5,27 @@ initializeTracing();
 // CloudWatch batching is automatically initialized via singleton pattern
 // See: src/observability/cloudWatchBatcher.ts
 
-import express from 'express';
+// Node.js built-ins
+import { Buffer } from 'node:buffer';
 import http from 'http';
 
-import { Buffer } from 'node:buffer';
+// External packages
+import express from 'express';
+
+// Internal modules - handlers
+import { HealthHandler } from './handlers/HealthHandler';
+import { initWebsocketServer } from './handlers/WebsocketHandler';
+import { WebhookHandler, WebhookRequest } from './handlers/WebhookHandler';
+
+// Internal modules - observability
+import logger from './observability/logger';
 import { safeTrace } from './observability/safeTracing';
 import { smartSampler } from './observability/smartSampling';
 
-import { WebhookHandler, WebhookRequest } from './handlers/WebhookHandler';
-import { HealthHandler } from './handlers/HealthHandler';
-import logger from './utils/logger';
-import { initWebsocketServer } from './handlers/WebsocketHandler';
+// Internal modules - security
 import { webSocketSecurity } from './security/WebSocketSecurity';
+
+// Internal modules - utils
 import { correlationMiddleware } from './utils/correlationId';
 
 

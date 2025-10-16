@@ -24,7 +24,8 @@
  */
  
 import { AudioBuffer, WebSocketLike } from './AudioBuffer';
-import logger from '../utils/logger';
+import { BufferPool } from './BufferPool';
+import logger from '../observability/logger';
  
 /**
  * Singleton manager for session-based audio buffer lifecycle management.
@@ -36,9 +37,14 @@ export class AudioBufferManager {
  
   /** Map of session IDs to their corresponding AudioBuffer instances */
   private sessionBuffers: Map<string, AudioBuffer> = new Map();
+
+  /** Buffer pool for efficient memory management */
+  private bufferPool: BufferPool;
  
   /** Private constructor to enforce singleton pattern */
-  private constructor() { }
+  private constructor() { 
+    this.bufferPool = BufferPool.getInstance();
+  }
  
   /**
    * Gets the singleton instance of AudioBufferManager.
@@ -246,5 +252,43 @@ export class AudioBufferManager {
     
     this.sessionBuffers.clear();
     logger.info('All audio buffers cleared');
+  }
+
+  /**
+   * Updates memory pressure and triggers adaptive behavior
+   */
+  public updateMemoryPressure(): void {
+    // Get system memory usage
+    const memUsage = process.memoryUsage();
+    const totalMemory = memUsage.heapTotal + memUsage.external;
+    const usedMemory = memUsage.heapUsed;
+    const memoryPressure = usedMemory / totalMemory;
+
+    // Update buffer pool with current memory pressure
+    this.bufferPool.updateMemoryPressure(memoryPressure);
+
+    // If memory pressure is high, perform aggressive cleanup
+    if (memoryPressure > 0.8) {
+      logger.warn('High memory pressure detected, performing cleanup', {
+        memoryPressure,
+        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+        activeSessions: this.sessionBuffers.size
+      });
+
+      this.cleanup();
+      
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+      }
+    }
+  }
+
+  /**
+   * Gets buffer pool statistics for monitoring
+   */
+  public getBufferPoolStats() {
+    return this.bufferPool.getStats();
   }
 }

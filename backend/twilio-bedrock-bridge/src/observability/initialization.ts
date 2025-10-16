@@ -8,7 +8,7 @@ import { initializeTracing, shutdownTracing } from './tracing';
 import { fargateXRayTracer } from './xrayTracing';
 import { memoryMonitor } from './memoryMonitor';
 import { observabilityConfig } from './config';
-import logger from '../utils/logger';
+import logger from './logger';
 
 export interface ObservabilityInitOptions {
   enableMemoryMonitoring?: boolean;

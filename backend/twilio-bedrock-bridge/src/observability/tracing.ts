@@ -1,180 +1,265 @@
-// AWS Distro for OpenTelemetry initialization with Smart Sampling
+// Optimized OpenTelemetry initialization with streamlined fallback logic
 // The actual instrumentation is loaded via the register module in start.js
 
 import { observabilityConfig } from './config';
 import { smartSampler } from './smartSampling';
 import { currentEnvironment, otelCapabilities } from '../utils/environment';
 import { fargateXRayTracer } from './xrayTracing';
-import logger from '../utils/logger';
+import logger from './logger';
 
-// Track OTEL initialization status
-let otelInitialized = false;
-let otelError: Error | null = null;
-let fallbackMode = false;
+// Simplified tracing state management
+interface TracingState {
+  readonly initialized: boolean;
+  readonly fallbackMode: boolean;
+  readonly error: Error | null;
+  readonly initializationTime: number;
+  readonly tracingMethod: 'otel' | 'xray' | 'none';
+}
 
-// Initialize tracing - AWS Distro is loaded via --require flag
+let tracingState: TracingState = {
+  initialized: false,
+  fallbackMode: false,
+  error: null,
+  initializationTime: 0,
+  tracingMethod: 'none'
+};
+
+// Streamlined initialization with optimized error handling
 export function initializeTracing(): void {
-    try {
-        // Check if OTEL failed during startup
-        if (process.env.OTEL_STARTUP_FAILED === 'true') {
-            throw new Error('OTEL failed during startup initialization');
-        }
-        
-        // Check if environment recommends fallback mode
-        if (otelCapabilities.recommendsFallback) {
-            console.log('Environment recommends OTEL fallback mode, but attempting initialization...');
-        }
-        
-        const serviceName = process.env.OTEL_SERVICE_NAME || 'twilio-bedrock-bridge';
-        const serviceVersion = process.env.OTEL_SERVICE_VERSION || '0.1.0';
-        const environment = process.env.NODE_ENV || 'development';
-        const enabledInstrumentations = process.env.OTEL_NODE_ENABLED_INSTRUMENTATIONS || 'http,https,express,dns,fs,net';
-        
-        // Log tracing configuration including smart sampling
-        const samplingConfig = smartSampler.getSamplingConfig();
-        
-        console.log(`AWS Distro for OpenTelemetry initialized with Smart Sampling`);
-        console.log(`Service: ${serviceName}, Version: ${serviceVersion}, Environment: ${environment}`);
-        console.log(`Platform: ${currentEnvironment.platform}, Region: ${currentEnvironment.region || 'unknown'}`);
-        console.log(`Enabled instrumentations: ${enabledInstrumentations}`);
-        console.log(`OTLP endpoint: ${process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'default'}`);
-        console.log(`Global sample rate: ${samplingConfig.globalSampleRate * 100}%`);
-        console.log(`Smart sampling rates:`, {
-            websocketMessages: `${samplingConfig.operationRates.websocketMessages * 100}%`,
-            audioChunks: `${samplingConfig.operationRates.audioChunks * 100}%`,
-            bedrockStreaming: `${samplingConfig.operationRates.bedrockStreaming * 100}%`,
-            healthChecks: `${samplingConfig.operationRates.healthChecks * 100}%`,
-            errors: `${samplingConfig.operationRates.errors * 100}%`,
-            bedrockRequests: `${samplingConfig.operationRates.bedrockRequests * 100}%`,
-            sessionLifecycle: `${samplingConfig.operationRates.sessionLifecycle * 100}%`
-        });
-        
-        if (samplingConfig.customRules.length > 0) {
-            console.log(`Custom sampling rules:`, samplingConfig.customRules);
-        }
-        
-        console.log('HTTP metrics will be automatically collected via OTEL auto-instrumentation');
-        console.log('Traces will be sent to AWS OTEL Collector and forwarded to X-Ray');
-        console.log('Fallback mode available if OTEL fails at runtime');
-        
-        // Test basic OTEL functionality
-        try {
-            const testTracer = require('@opentelemetry/api').trace.getTracer('test');
-            const testSpan = testTracer.startSpan('initialization-test');
-            testSpan.end();
-            console.log('OTEL basic functionality verified');
-        } catch (testError) {
-            console.warn('OTEL basic test failed, enabling fallback mode:', testError);
-            fallbackMode = true;
-        }
-        
-        logger.info('Tracing initialized with smart sampling and fallback protection', {
-            component: 'tracing',
-            serviceName,
-            serviceVersion,
-            environment,
-            samplingConfig,
-            fallbackMode
-        });
-        
-        otelInitialized = true;
-        
-    } catch (error) {
-        otelError = error instanceof Error ? error : new Error(String(error));
-        fallbackMode = true;
-        
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        // Provide specific guidance for common ECS Fargate issues
-        if (errorMessage.includes('machine-id') || errorMessage.includes('/var/lib/dbus/machine-id')) {
-            console.warn('OTEL failed due to missing machine-id (common in ECS Fargate)');
-            console.log('This is expected in containerized environments - using fallback mode');
-            console.log(`Detected environment: ${currentEnvironment.platform}`);
-        } else {
-            console.warn('OTEL initialization failed, enabling fallback mode:', error);
-        }
-        
-        // Initialize X-Ray as fallback for distributed tracing
-        if (otelCapabilities.shouldUseXRayForTracing) {
-            console.log('Initializing X-Ray tracing as OTEL fallback...');
-            try {
-                fargateXRayTracer.initialize();
-                console.log('X-Ray fallback tracing initialized');
-            } catch (xrayError) {
-                console.warn('X-Ray fallback also failed:', xrayError);
-            }
-        }
-        
-        console.log('Application will continue with fallback observability (X-Ray + CloudWatch + correlation IDs)');
-        logger.warn('OTEL initialization failed, using fallback observability', { 
-            error: errorMessage,
-            fallbackMode: true,
-            xrayEnabled: fargateXRayTracer.isActive(),
-            isContainerized: !!process.env.ECS_CONTAINER_METADATA_URI_V4
-        });
-        
-        // Don't throw - let the application continue with fallback mode
-        otelInitialized = false;
+  const startTime = performance.now();
+  
+  try {
+    // Fast path: Check if fallback mode should be used immediately
+    if (shouldUseFallbackMode()) {
+      initializeFallbackMode('Environment configuration requires fallback mode');
+      return;
     }
+
+    // Optimized OTEL initialization
+    const config = createTracingConfiguration();
+    
+    // Test OTEL availability with minimal overhead
+    if (validateOtelFunctionality()) {
+      updateTracingState({
+        initialized: true,
+        fallbackMode: false,
+        error: null,
+        initializationTime: performance.now() - startTime,
+        tracingMethod: 'otel'
+      });
+      
+      logger.info('OTEL tracing initialized', {
+        component: 'tracing',
+        initTimeMs: Math.round(tracingState.initializationTime),
+        service: config.serviceName,
+        environment: config.environment,
+        samplingRate: config.samplingConfig.globalSampleRate
+      });
+    } else {
+      throw new Error('OTEL functionality validation failed');
+    }
+    
+  } catch (error) {
+    handleInitializationError(error, performance.now() - startTime);
+  }
 }
 
-// Check if OTEL is available and working
+// Optimized fallback mode detection
+function shouldUseFallbackMode(): boolean {
+  // Fast boolean checks first (most performant)
+  if (!observabilityConfig.tracing.enableOTLP) return true;
+  if (process.env.OTEL_STARTUP_FAILED === 'true') return true;
+  if (otelCapabilities.recommendsFallback) return true;
+  
+  return false;
+}
+
+// Streamlined tracing configuration creation
+function createTracingConfiguration() {
+  const samplingConfig = smartSampler.getSamplingConfig();
+  
+  return {
+    serviceName: observabilityConfig.serviceName,
+    serviceVersion: observabilityConfig.serviceVersion,
+    environment: observabilityConfig.environment,
+    platform: currentEnvironment.platform,
+    region: currentEnvironment.region || 'us-east-1',
+    samplingConfig
+  };
+}
+
+// Optimized OTEL functionality validation with minimal overhead
+function validateOtelFunctionality(): boolean {
+  try {
+    // Lazy load OTEL API only when needed
+    const { trace } = require('@opentelemetry/api');
+    
+    // Minimal validation - just check if we can get a tracer
+    const testTracer = trace.getTracer('init-test', '1.0.0');
+    if (!testTracer) return false;
+    
+    // Quick span test without attributes to minimize overhead
+    const span = testTracer.startSpan('validation');
+    span.end();
+    
+    return true;
+  } catch (error) {
+    // Log at debug level to avoid noise during normal fallback scenarios
+    logger.debug('OTEL validation failed', { 
+      error: error instanceof Error ? error.message : String(error),
+      component: 'tracing'
+    });
+    return false;
+  }
+}
+
+// Streamlined error handling with optimized fallback logic
+function handleInitializationError(error: unknown, initTime: number): void {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorCategory = categorizeTracingError(errorMessage);
+  
+  updateTracingState({
+    initialized: false,
+    fallbackMode: true,
+    error: error instanceof Error ? error : new Error(errorMessage),
+    initializationTime: initTime,
+    tracingMethod: 'none' // Will be updated if X-Ray succeeds
+  });
+  
+  logger.warn('OTEL initialization failed, activating fallback mode', {
+    component: 'tracing',
+    error: errorMessage,
+    category: errorCategory,
+    initTimeMs: Math.round(initTime)
+  });
+  
+  initializeFallbackMode(errorCategory);
+}
+
+// Optimized error categorization for better diagnostics
+function categorizeTracingError(errorMessage: string): string {
+  // Use includes() for faster string matching than regex
+  if (errorMessage.includes('machine-id') || errorMessage.includes('/var/lib/dbus')) {
+    return 'container_environment';
+  }
+  if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('network') || errorMessage.includes('timeout')) {
+    return 'network_issue';
+  }
+  if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
+    return 'permission_denied';
+  }
+  if (errorMessage.includes('module') || errorMessage.includes('require')) {
+    return 'module_loading';
+  }
+  return 'unknown';
+}
+
+// Optimized fallback mode initialization
+function initializeFallbackMode(errorCategory: string): void {
+  logger.info('Activating fallback tracing mode', {
+    component: 'tracing',
+    reason: errorCategory,
+    xrayEnabled: otelCapabilities.shouldUseXRayForTracing
+  });
+  
+  // Try X-Ray initialization if environment supports it
+  if (otelCapabilities.shouldUseXRayForTracing) {
+    try {
+      fargateXRayTracer.initialize();
+      
+      updateTracingState({
+        ...tracingState,
+        tracingMethod: 'xray'
+      });
+      
+      logger.info('X-Ray fallback tracing activated');
+    } catch (xrayError) {
+      logger.warn('X-Ray fallback failed, using correlation-only mode', {
+        error: xrayError instanceof Error ? xrayError.message : String(xrayError),
+        component: 'tracing'
+      });
+    }
+  }
+}
+
+// Helper function to update tracing state immutably
+function updateTracingState(newState: TracingState): void {
+  tracingState = { ...newState };
+}
+
+// Optimized tracing status checks
 export function isOtelAvailable(): boolean {
-    return otelInitialized && !otelError && !fallbackMode;
+    return tracingState.initialized && !tracingState.fallbackMode && tracingState.tracingMethod === 'otel';
 }
 
-// Get OTEL error if any
 export function getOtelError(): Error | null {
-    return otelError;
+    return tracingState.error;
 }
 
-// Check if we're in fallback mode
 export function isFallbackMode(): boolean {
-    return fallbackMode;
+    return tracingState.fallbackMode;
 }
 
-// Force fallback mode (useful for testing or when OTEL fails at runtime)
+// Optimized fallback mode activation
 export function enableFallbackMode(reason?: string): void {
-    fallbackMode = true;
-    console.warn(`OTEL fallback mode enabled${reason ? `: ${reason}` : ''}`);
-    logger.warn('OTEL fallback mode enabled - using basic logging only', { reason });
+    updateTracingState({
+        ...tracingState,
+        fallbackMode: true,
+        tracingMethod: fargateXRayTracer.isActive() ? 'xray' : 'none'
+    });
+    
+    logger.warn('OTEL fallback mode activated', { 
+        reason: reason || 'manual_activation',
+        component: 'tracing'
+    });
 }
 
-// Check if any tracing is available (OTEL or X-Ray)
+// Streamlined tracing availability check
 export function isTracingAvailable(): boolean {
-    return otelInitialized || fargateXRayTracer.isActive();
+    return tracingState.tracingMethod !== 'none';
 }
 
-// Get the active tracer (OTEL or X-Ray)
+// Optimized active tracer detection
 export function getActiveTracer(): 'otel' | 'xray' | 'none' {
-    if (otelInitialized && !fallbackMode) return 'otel';
-    if (fargateXRayTracer.isActive()) return 'xray';
-    return 'none';
+    return tracingState.tracingMethod;
 }
 
-// Graceful shutdown
+// Optimized graceful shutdown
 export async function shutdownTracing(): Promise<void> {
     try {
-        if (otelInitialized) {
+        const activeTracer = tracingState.tracingMethod;
+        
+        if (activeTracer === 'otel') {
             // AWS Distro handles shutdown automatically
-            console.log('AWS Distro for OpenTelemetry shutdown initiated');
-        } else {
-            console.log('OTEL was not initialized, skipping shutdown');
-        }
-
-        // Shutdown X-Ray if it was used as fallback
-        if (fargateXRayTracer.isActive()) {
+            logger.info('OTEL tracing shutdown initiated', { component: 'tracing' });
+        } else if (activeTracer === 'xray') {
             fargateXRayTracer.shutdown();
-            console.log('X-Ray fallback tracing shutdown');
+            logger.info('X-Ray tracing shutdown completed', { component: 'tracing' });
         }
+        
+        // Reset tracing state
+        updateTracingState({
+            initialized: false,
+            fallbackMode: false,
+            error: null,
+            initializationTime: 0,
+            tracingMethod: 'none'
+        });
+        
     } catch (error) {
-        console.warn('Error shutting down tracing (non-critical):', error);
-        // Don't throw - this is during shutdown and shouldn't prevent graceful exit
+        // Non-critical error during shutdown - log but don't throw
+        logger.warn('Error during tracing shutdown', {
+            error: error instanceof Error ? error.message : String(error),
+            component: 'tracing'
+        });
     }
 }
 
-// Export placeholder SDK for compatibility
+// Streamlined SDK compatibility layer
 export const sdk = {
-    start: () => console.log('AWS Distro SDK started'),
-    shutdown: () => Promise.resolve(console.log('AWS Distro SDK shutdown'))
+    start: () => logger.debug('AWS Distro SDK start called', { component: 'tracing' }),
+    shutdown: () => {
+        logger.debug('AWS Distro SDK shutdown called', { component: 'tracing' });
+        return Promise.resolve();
+    }
 };

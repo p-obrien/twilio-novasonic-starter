@@ -7,6 +7,9 @@
  *   for Twilio message variants and reduce duplication across the codebase.
  */
 
+import { WebSocket } from 'ws';
+import { CorrelationContext } from '../utils/correlationId';
+
 /**
  * InferenceConfig contains model generation settings.
  * Keep these required so callers must explicitly provide values; they are read-only to
@@ -16,6 +19,7 @@ export interface InferenceConfig {
   readonly maxTokens: number;
   readonly topP: number;
   readonly temperature: number;
+  readonly enableMetrics?: boolean;
 }
 
 /* Content / media type aliases */
@@ -150,6 +154,7 @@ export function normalizeTwilioSequenceNumber(msg: any): string | undefined {
 }
 
 /* ============================
+<<<<<<< HEAD
    Conversation Context Types
    ============================ */
 
@@ -202,3 +207,44 @@ export type ConversationState =
   | 'ending'
   | 'ended'
   | 'error';
+=======
+   WebSocket Extensions
+   ============================ */
+
+
+
+/**
+ * Extended WebSocket interface with Twilio-specific properties
+ * This extends the standard WebSocket with properties needed for our application
+ */
+export interface ExtendedWebSocket extends WebSocket {
+  /** Unique identifier for this WebSocket connection */
+  id?: string;
+  /** Correlation context for request tracking */
+  correlationContext?: CorrelationContext;
+  /** Twilio incoming sequence number */
+  _twilioInSeq?: number;
+  /** Twilio outgoing sequence number */
+  _twilioOutSeq?: number;
+  /** Twilio stream SID */
+  twilioStreamSid?: string;
+  /** Twilio sample rate */
+  twilioSampleRate?: number;
+  /** Twilio call SID */
+  callSid?: string;
+}
+
+/**
+ * Error context interface for consistent error handling
+ */
+export interface ErrorContext {
+  /** Session identifier */
+  sessionId?: string;
+  /** Call SID */
+  callSid?: string;
+  /** Correlation ID */
+  correlationId?: string;
+  /** Additional context metadata */
+  metadata?: Record<string, any>;
+}
+>>>>>>> origin/main
