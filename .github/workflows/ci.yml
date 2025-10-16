@@ -22,6 +22,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
+          cache-dependency-path: 'backend/twilio-bedrock-bridge/package-lock.json'
 
       - name: Install dependencies
         run: |
