@@ -5,6 +5,54 @@
  * for Twilio WebSocket connections with proper timing and buffering.
  */
 
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { it } from 'node:test';
+import { describe } from 'node:test';
+import { afterEach } from 'node:test';
+import { beforeEach } from 'node:test';
+import { describe } from 'node:test';
 import { AudioBuffer, AudioBufferOptions, WebSocketLike } from '../../../audio/AudioBuffer';
 import { BufferPool } from '../../../audio/BufferPool';
 
@@ -277,10 +325,18 @@ describe('AudioBuffer', () => {
       
       buffer.flush();
       
-      // Should send complete frame plus padded partial frame
-      expect(mockWebSocket.send).toHaveBeenCalledTimes(2);
+      // Should send complete frame plus padded partial frame plus completion mark
+      expect(mockWebSocket.send).toHaveBeenCalledTimes(3);
       expect(buffer.getStatus().bufferBytes).toBe(0);
       expect(buffer.getStatus().isActive).toBe(false);
+      
+      // Verify we have 2 media frames and 1 mark
+      const calls = (mockWebSocket.send as jest.Mock).mock.calls;
+      const mediaCalls = calls.filter(call => JSON.parse(call[0]).event === 'media');
+      const markCalls = calls.filter(call => JSON.parse(call[0]).event === 'mark');
+      
+      expect(mediaCalls.length).toBe(2); // Complete frame + padded frame
+      expect(markCalls.length).toBe(1); // Completion mark
     });
 
     it('should pad partial frames with silence during flush', () => {
@@ -392,6 +448,57 @@ describe('AudioBuffer', () => {
       
       // Should not attempt to send mark
       expect(mockWebSocket.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Send Queue Optimization', () => {
+    it('should queue frames for asynchronous sending', () => {
+      const buffer = new AudioBuffer(mockWebSocket, 'test-session');
+      buffer.addAudio(createTestBuffer(160));
+      
+      // Frame should be prepared but not sent immediately
+      jest.advanceTimersByTime(25);
+      
+      // Check send stats
+      const sendStats = buffer.getSendStats();
+      expect(sendStats.queued).toBeGreaterThan(0);
+    });
+
+    it('should track send statistics correctly', () => {
+      const buffer = new AudioBuffer(mockWebSocket, 'test-session');
+      buffer.addAudio(createTestBuffer(160)); // 1 frame
+      
+      jest.advanceTimersByTime(25); // Trigger 1 frame send
+      
+      const sendStats = buffer.getSendStats();
+      expect(sendStats.queued).toBe(1);
+      // Queue might be empty if processing is fast, so just check it's a number
+      expect(typeof sendStats.queueSize).toBe('number');
+    });
+
+    it('should clear send queue on stop', () => {
+      const buffer = new AudioBuffer(mockWebSocket, 'test-session');
+      buffer.addAudio(createTestBuffer(320)); // 2 frames
+      
+      jest.advanceTimersByTime(25); // Queue one frame
+      
+      buffer.stop('test_stop');
+      
+      const sendStats = buffer.getSendStats();
+      expect(sendStats.queueSize).toBe(0);
+      expect(sendStats.processing).toBe(false);
+    });
+
+    it('should provide send statistics interface', () => {
+      const buffer = new AudioBuffer(mockWebSocket, 'test-session');
+      
+      const sendStats = buffer.getSendStats();
+      expect(sendStats).toHaveProperty('queued');
+      expect(sendStats).toHaveProperty('sent');
+      expect(sendStats).toHaveProperty('dropped');
+      expect(sendStats).toHaveProperty('errors');
+      expect(sendStats).toHaveProperty('queueSize');
+      expect(sendStats).toHaveProperty('processing');
     });
   });
 

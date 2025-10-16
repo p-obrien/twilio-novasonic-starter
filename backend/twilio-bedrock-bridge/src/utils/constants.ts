@@ -77,18 +77,38 @@ export const AudioProcessing = {
   SILENCE_PADDING_VALUE: 0,     // Value for silent padding
 } as const;
 
+// Ultra-low latency timing configuration
+export const UltraLowLatencyConfig = {
+  // Master timer interval - single 20ms timer for all operations
+  MASTER_TIMER_MS: 20,           // Single timer matching Twilio's expectation
+  
+  // Input processing - immediate send, no buffering
+  INPUT_IMMEDIATE_SEND: true,    // Send to Bedrock immediately on receive
+  INPUT_MAX_BUFFER_MS: 0,        // No input buffering for ultra-low latency
+  
+  // Output processing - synchronized with master timer
+  OUTPUT_FRAME_SIZE: 160,        // 20ms at 8kHz μ-law (160 bytes)
+  OUTPUT_MAX_BUFFER_MS: 100,     // Keep total buffering under 100ms
+  OUTPUT_SYNC_TO_TIMER: true,    // Synchronize output to master timer
+  
+  // Processing optimization
+  CHUNK_SIZE_MS: 20,             // Process in 20ms chunks
+  BATCH_SIZE: 1,                 // Process immediately, no batching
+  PROCESSING_TIMEOUT_MS: 5000,   // Reduced timeout for faster failure detection
+} as const;
+
 // Buffer size configurations for different scenarios
 export const BufferSizeConfig = {
-  // Input audio buffering (user speech)
-  INPUT_REALTIME_MAX: 10,        // Small buffer for low-latency interruption detection
-  INPUT_REALTIME_TRIM_TO: 5,     // Trim to this size when buffer is full
-  INPUT_STANDARD_MAX: 200,       // Standard buffer size for regular mode
+  // Input audio buffering (user speech) - ELIMINATED for ultra-low latency
+  INPUT_REALTIME_MAX: 1,         // Minimal buffer - send immediately
+  INPUT_REALTIME_TRIM_TO: 1,     // No trimming needed
+  INPUT_STANDARD_MAX: 1,         // No buffering in any mode
   
-  // Output audio buffering (model speech) - Nova Sonic can generate faster than real-time
-  OUTPUT_BUFFER_MAX: 1000,       // Large buffer to handle fast model responses
-  OUTPUT_BUFFER_WARNING: 800,    // Warn when buffer gets large
+  // Output audio buffering (model speech) - Reduced for low latency
+  OUTPUT_BUFFER_MAX: 5,          // Reduced from 1000 to 5 frames (100ms max)
+  OUTPUT_BUFFER_WARNING: 3,      // Warn at 3 frames (60ms)
   
-  // Processing batch sizes
-  PROCESSING_BATCH_SIZE: 5,      // Max chunks to process per batch
-  PROCESSING_TIMEOUT_MS: 30000,  // Timeout for processing operations (30 seconds)
+  // Processing batch sizes - Optimized for immediate processing
+  PROCESSING_BATCH_SIZE: 1,      // Process immediately, no batching
+  PROCESSING_TIMEOUT_MS: 5000,   // Reduced timeout (was 30 seconds)
 };

@@ -83,8 +83,8 @@ export class AudioBufferManager {
     if (!buffer) {
       buffer = new AudioBuffer(ws, sessionId, {
         frameSize: 160,    // 20ms at 8kHz μ-law (160 bytes = 160 samples = 20ms at 8kHz)
-        intervalMs: 5,    // Optimal 20ms intervals to match Twilio's expected frame rate
-        maxBufferMs: 3000   // Reduced to 400ms to minimize latency while preventing underruns
+        intervalMs: 5,     // Reduced to 5ms intervals for maximum consumption rate
+        maxBufferMs: 3000  // Increased to 3000ms for maximum headroom
       });
  
       this.sessionBuffers.set(sessionId, buffer);
@@ -179,6 +179,20 @@ export class AudioBufferManager {
   public getBufferStatus(sessionId: string): { bufferBytes: number; bufferMs: number; isActive: boolean } | null {
     const buffer = this.sessionBuffers.get(sessionId);
     return buffer ? buffer.getStatus() : null;
+  }
+
+  /**
+   * Retrieves send queue statistics for a session's audio buffer.
+   * 
+   * Provides metrics about WebSocket send performance, queue size, and
+   * transmission statistics for monitoring and debugging purposes.
+   * 
+   * @param sessionId - Unique identifier for the audio session
+   * @returns Send statistics object, or null if session doesn't exist
+   */
+  public getSendStats(sessionId: string) {
+    const buffer = this.sessionBuffers.get(sessionId);
+    return buffer ? buffer.getSendStats() : null;
   }
  
   /**

@@ -41,7 +41,7 @@ const TEST_DEFAULTS: Record<string, any> = {
   'aws.region': 'us-east-1',
   'bedrock.region': 'us-east-1',
   'bedrock.modelId': 'amazon.nova-sonic-v1:0',
-  'logging.level': 'ERROR', // Reduce noise in tests
+  'logging.level': 'INFO', // Use INFO as reasonable default for both tests and ECS
   'environment.nodeEnv': 'test',
   'environment.serviceName': 'twilio-bedrock-bridge-test',
   'environment.serviceVersion': '0.1.0-test',
@@ -256,8 +256,23 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
 
   private loadLoggingConfig(): LoggingConfig {
     const nodeEnv = process.env.NODE_ENV || 'development';
+    
+    // Validate and normalize LOG_LEVEL environment variable
+    const validLogLevels: LoggingConfig['level'][] = ['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'];
+    const rawLogLevel = process.env.LOG_LEVEL;
+    const envLogLevel = rawLogLevel?.trim().toUpperCase();
+    
+    // Debug logging for ECS deployment troubleshooting
+    if (rawLogLevel && !validLogLevels.includes(envLogLevel as LoggingConfig['level'])) {
+      console.warn(`Invalid LOG_LEVEL environment variable: '${rawLogLevel}' (normalized: '${envLogLevel}'). Using default: ${DEFAULT_CONFIG.logging!.level}`);
+    }
+    
+    const logLevel = (envLogLevel && validLogLevels.includes(envLogLevel as LoggingConfig['level'])) 
+      ? (envLogLevel as LoggingConfig['level'])
+      : DEFAULT_CONFIG.logging!.level;
+    
     return {
-      level: (process.env.LOG_LEVEL as LoggingConfig['level']) || DEFAULT_CONFIG.logging!.level,
+      level: logLevel,
       enableStructuredLogging: this.parseBoolean(process.env.ENABLE_STRUCTURED_LOGGING, nodeEnv === 'production'),
       enableTraceCorrelation: this.parseBoolean(process.env.ENABLE_TRACE_CORRELATION, DEFAULT_CONFIG.logging!.enableTraceCorrelation),
       maxLogContentLength: this.parseNumber(process.env.MAX_LOG_CONTENT_LENGTH, DEFAULT_CONFIG.logging!.maxLogContentLength),
@@ -486,7 +501,12 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
         if (schema.validation) {
           try {
             if (!schema.validation(value)) {
-              errors.push(`Configuration key '${key}' failed validation: ${schema.description}`);
+              // Provide more specific error message for logging level
+              if (key === 'logging.level') {
+                errors.push(`Configuration key '${key}' has invalid value '${value}'. Expected one of: ERROR, WARN, INFO, DEBUG, TRACE`);
+              } else {
+                errors.push(`Configuration key '${key}' failed validation: ${schema.description}`);
+              }
             }
           } catch (error) {
             errors.push(`Configuration key '${key}' validation error: ${error instanceof Error ? error.message : 'Unknown error'}`);

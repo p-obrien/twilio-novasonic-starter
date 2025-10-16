@@ -176,6 +176,8 @@ export interface ExtendedWebSocket extends WebSocket {
   twilioSampleRate?: number;
   /** Twilio call SID */
   callSid?: string;
+  /** Timestamp of last audio output for rate limiting */
+  _lastAudioTimestamp?: number;
 }
 
 /**

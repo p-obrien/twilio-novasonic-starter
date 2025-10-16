@@ -36,7 +36,7 @@ import { ExtendedWebSocket } from '../types/SharedTypes';
 
 // Internal modules - utils
 import { setTimeoutWithCorrelation } from '../utils/asyncCorrelation';
-import { DefaultAudioInputConfiguration, DefaultAudioOutputConfiguration, DefaultTextConfiguration } from '../utils/constants';
+import { DefaultAudioInputConfiguration, DefaultAudioOutputConfiguration, DefaultTextConfiguration, UltraLowLatencyConfig } from '../utils/constants';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { sanitizeInput } from '../utils/ValidationUtils';
 
@@ -46,6 +46,8 @@ import { sanitizeInput } from '../utils/ValidationUtils';
  */
 export const callSidToSessionId: Map<string, string> = new Map();
 export const wsIdToSessionId: Map<string, string> = new Map();
+
+
 
 // Enhanced Bedrock client with orchestrator capabilities
 // Uses default AWS credential chain (IAM roles in ECS, profiles locally)
@@ -135,10 +137,8 @@ export function initWebsocketServer(server: http.Server): void {
     let isUserTurnActive = false;
     const SILENCE_TIMEOUT_MS = 3000; // End turn after 3 seconds of silence (increased for better UX)
 
-    // Audio buffering for smoother streaming
-    let audioBuffer: Buffer[] = [];
-    let audioBufferTimer: NodeJS.Timeout | null = null;
-    const AUDIO_BUFFER_MS = 100; // Buffer audio for 100ms before sending
+    // Ultra-low latency: eliminate input buffering - send immediately to Bedrock
+    // No audio buffering - process and send each frame immediately
 
     // Cleanup function to prevent memory leaks
     const cleanupTimers = () => {
@@ -146,52 +146,32 @@ export function initWebsocketServer(server: http.Server): void {
         clearTimeout(turnEndTimer);
         turnEndTimer = null;
       }
-      if (audioBufferTimer) {
-        clearTimeout(audioBufferTimer);
-        audioBufferTimer = null;
-      }
-      // Clear audio buffer to prevent memory accumulation
-      audioBuffer.length = 0;
+      // No audio buffer timer needed - processing is immediate
     };
 
-    // Function to flush buffered audio to Bedrock
-    const flushAudioBuffer = async () => {
-      if (audioBuffer.length === 0) return;
-
+    // Ultra-low latency: send audio immediately to Bedrock (no buffering)
+    const sendAudioImmediately = async (audioData: Buffer) => {
       const sessionId = ws.id;
       if (!sessionId || !bedrockClient.isSessionActive(sessionId)) {
-        logger.debug('No active Bedrock session for buffered audio', { client: tempWsId, sessionId });
-        audioBuffer = []; // Clear buffer
+        logger.debug('No active Bedrock session for immediate audio', { client: tempWsId, sessionId });
         return;
       }
 
       try {
-        // Concatenate all buffered chunks for more efficient streaming
-        const combinedBuffer = Buffer.concat(audioBuffer);
-        audioBuffer = []; // Clear buffer immediately
+        // Send audio chunk immediately to Bedrock (non-blocking)
+        bedrockClient.streamAudioChunk(sessionId, audioData).catch((streamErr) => {
+          logger.warn('Failed to forward immediate audio chunk to Bedrock', { client: tempWsId, sessionId, err: streamErr });
+        });
 
-        // Clear timer
-        if (audioBufferTimer) {
-          clearTimeout(audioBufferTimer);
-          audioBufferTimer = null;
-        }
-
-        // Send combined buffer to Bedrock (non-blocking)
-        if (sessionId) {
-          bedrockClient.streamAudioChunk(sessionId, combinedBuffer).catch((streamErr) => {
-            logger.warn('Failed to forward buffered audio chunk to Bedrock', { client: tempWsId, sessionId, err: streamErr });
-          });
-        }
-
-        logger.debug('Forwarded buffered audio chunk to Bedrock', {
+        logger.debug('Forwarded immediate audio chunk to Bedrock', {
           client: tempWsId,
           sessionId,
-          bytes: combinedBuffer.length
+          bytes: audioData.length,
+          latencyMode: 'immediate'
         });
 
       } catch (err) {
-        logger.warn('Error flushing audio buffer', { client: tempWsId, err });
-        audioBuffer = []; // Clear buffer on error
+        logger.warn('Error sending immediate audio', { client: tempWsId, err });
       }
     };
 
@@ -402,8 +382,6 @@ export function initWebsocketServer(server: http.Server): void {
                       remainingBytes: bufferStatus.bufferBytes,
                       remainingMs: bufferStatus.bufferMs 
                     });
-                    // Note: We don't remove the buffer here, just flush remaining audio
-                    // The buffer will continue to be available for the next response
                   }
                 } catch (e) {
                   logger.warn('Failed to flush audio buffer after contentEnd', { sessionId, err: e });
@@ -436,8 +414,23 @@ export function initWebsocketServer(server: http.Server): void {
                   timestamp
                 });
 
-                // Add audio to session buffer for consistent frame timing
+                // Add audio to session buffer for proper timing
                 const audioBufferManager = AudioBufferManager.getInstance();
+                
+                const audioRealDurationMs = Math.round((muBuf.length / 8000) * 1000);
+                const timeSinceLastAudioMs = timestamp - (ws._lastAudioTimestamp || timestamp);
+                ws._lastAudioTimestamp = timestamp;
+                
+                logger.debug('Adding Nova Sonic audio to buffer with proper timing', {
+                  sessionId,
+                  audioBytes: muBuf.length,
+                  audioRealDurationMs,
+                  timeSinceLastAudioMs,
+                  generationRate: audioRealDurationMs > 0 ? (timeSinceLastAudioMs / audioRealDurationMs).toFixed(2) + 'x' : 'unknown',
+                  isFasterThanRealtime: timeSinceLastAudioMs < audioRealDurationMs,
+                  mode: 'buffered_timing'
+                });
+                
                 audioBufferManager.addAudio(sessionId, ws, muBuf);
 
               } catch (err) {
@@ -529,22 +522,8 @@ export function initWebsocketServer(server: http.Server): void {
             }
             turnEndTimer = setTimeoutWithCorrelation(endCurrentUserTurn, SILENCE_TIMEOUT_MS);
 
-            // Buffer audio for smoother streaming to Bedrock
-            audioBuffer.push(pcm16le_16k);
-
-            // Clear existing timer and set new one
-            if (audioBufferTimer) {
-              clearTimeout(audioBufferTimer);
-            }
-
-            // Send buffered audio after a short delay or when buffer gets large
-            const shouldFlushImmediately = audioBuffer.length >= 5; // Flush if we have 5+ chunks
-
-            if (shouldFlushImmediately) {
-              flushAudioBuffer();
-            } else {
-              audioBufferTimer = setTimeoutWithCorrelation(flushAudioBuffer, AUDIO_BUFFER_MS);
-            }
+            // Ultra-low latency: send audio immediately to Bedrock (no buffering)
+            sendAudioImmediately(pcm16le_16k);
 
             // End span if it was created
             if (span) {
@@ -568,10 +547,7 @@ export function initWebsocketServer(server: http.Server): void {
           // Use centralized cleanup function
           cleanupTimers();
 
-          // Flush any remaining audio before ending turn
-          if (audioBuffer.length > 0) {
-            flushAudioBuffer().catch(() => { });
-          }
+          // No buffered audio to flush - immediate processing mode
 
           // Flush and clean up audio buffer for outbound audio
           try {
@@ -611,10 +587,7 @@ export function initWebsocketServer(server: http.Server): void {
       // Use centralized cleanup function
       cleanupTimers();
 
-      // Flush any remaining audio before closing
-      if (audioBuffer.length > 0) {
-        flushAudioBuffer().catch(() => { }); // Best effort
-      }
+      // No buffered audio to flush - immediate processing mode
 
       // Clean up session mappings
       try { 

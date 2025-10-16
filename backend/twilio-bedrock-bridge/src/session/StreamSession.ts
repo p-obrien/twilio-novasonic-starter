@@ -31,7 +31,8 @@ import {
   DefaultTextConfiguration,
   DefaultSystemPrompt,
   BufferSizeConfig,
-  MemoryThresholds
+  MemoryThresholds,
+  UltraLowLatencyConfig
 } from "../utils/constants";
 
 /**
@@ -123,13 +124,14 @@ export class StreamSession {
    * Initializes session configuration from options
    */
   private initializeConfiguration(audioOptions: AudioStreamOptions): void {
-    this.maxQueueSize = audioOptions.maxQueueSize ?? CLIENT_DEFAULTS.MAX_AUDIO_QUEUE_SIZE;
-    this.maxChunksPerBatch = audioOptions.maxChunksPerBatch ?? CLIENT_DEFAULTS.MAX_CHUNKS_PER_BATCH;
-    this.maxOutputBufferSize = audioOptions.maxOutputBufferSize ?? CLIENT_DEFAULTS.MAX_AUDIO_QUEUE_SIZE;
-    this.processingTimeoutMs = audioOptions.processingTimeoutMs ?? BufferSizeConfig.PROCESSING_TIMEOUT_MS;
+    // Use provided options or defaults optimized for ultra-low latency
+    this.maxQueueSize = audioOptions.maxQueueSize ?? 1; // Minimal queue - process immediately
+    this.maxChunksPerBatch = audioOptions.maxChunksPerBatch ?? 1; // Process one chunk at a time for lowest latency
+    this.maxOutputBufferSize = audioOptions.maxOutputBufferSize ?? 5; // Reduced output buffer (100ms max)
+    this.processingTimeoutMs = audioOptions.processingTimeoutMs ?? 5000; // Reduced timeout
     this.dropOldestOnFull = audioOptions.dropOldestOnFull ?? true;
     
-    // Memory pressure threshold (80% of combined buffer capacity)
+    // Memory pressure threshold (reduced for ultra-low latency)
     this.memoryPressureThreshold = Math.floor((this.maxQueueSize + this.maxOutputBufferSize) * MemoryThresholds.PRESSURE_THRESHOLD);
   }
 
@@ -155,11 +157,14 @@ export class StreamSession {
    * Logs successful session creation
    */
   private logSuccessfulCreation(): void {
-    logger.info(`StreamSession created successfully`, {
+    logger.info(`StreamSession created successfully with ultra-low latency configuration`, {
       sessionId: this.sessionId,
       maxQueueSize: this.maxQueueSize,
       maxChunksPerBatch: this.maxChunksPerBatch,
       maxOutputBufferSize: this.maxOutputBufferSize,
+      mode: 'ultra_low_latency',
+      inputBuffering: 'eliminated',
+      processingMode: 'immediate',
       correlationId: CorrelationIdManager.getCurrentCorrelationId()
     });
   }
@@ -370,13 +375,13 @@ export class StreamSession {
   /**
    * Streams audio data to the session for processing
    * 
-   * This method queues audio data for processing and transmission to the
-   * underlying client. The audio data is buffered and processed in batches
-   * to optimize performance and manage memory usage. The method handles
-   * buffer management, memory pressure detection, and graceful error handling.
+   * Ultra-low latency mode: This method processes audio data immediately without
+   * queuing or batching. Each audio chunk is sent directly to the underlying
+   * client to minimize latency. No buffering is performed to achieve sub-100ms
+   * end-to-end latency.
    * 
    * @param audioData - Buffer containing audio data to stream (must be a valid Buffer)
-   * @returns Promise that resolves when the audio has been queued for processing
+   * @returns Promise that resolves when the audio has been processed immediately
    * 
    * @throws {SessionInactiveError} If the session is not active
    * @throws {AudioProcessingError} If the audio data is invalid or processing fails
@@ -386,42 +391,45 @@ export class StreamSession {
    * const audioBuffer = Buffer.from(audioData);
    * try {
    *   await streamSession.streamAudio(audioBuffer);
-   *   console.log('Audio queued successfully');
+   *   console.log('Audio processed immediately');
    * } catch (error) {
    *   console.error('Failed to stream audio:', error);
    * }
    * ```
    */
   public async streamAudio(audioData: Buffer): Promise<void> {
-    return CorrelationIdManager.traceWithCorrelation('session.stream_audio', async () => {
+    return CorrelationIdManager.traceWithCorrelation('session.stream_audio_immediate', async () => {
       this.ensureSessionActive();
 
       if (!Buffer.isBuffer(audioData)) {
         throw new AudioProcessingError('Audio data must be a Buffer', this.sessionId);
       }
 
-      // Use standard buffer management for regular streaming
-      this.manageInputBufferSize(this.maxQueueSize);
-      
-      // Add to queue and trigger processing
-      this.audioBufferQueue.push(audioData);
-      
-      // Check for memory pressure and optimize if needed
-      this.optimizeMemoryUsage();
-      
       try {
-        await this.processAudioQueue();
-      } catch (error) {
-        logger.error(`Error streaming audio`, {
+        // Ultra-low latency: send immediately to client without queuing
+        await this.client.streamAudioChunk(this.sessionId, audioData);
+        
+        logger.debug(`Audio processed immediately`, {
           sessionId: this.sessionId,
+          audioSize: audioData.length,
+          mode: 'immediate',
+          latencyOptimization: 'ultra_low',
+          correlationId: CorrelationIdManager.getCurrentCorrelationId()
+        });
+        
+      } catch (error) {
+        logger.error(`Error streaming audio immediately`, {
+          sessionId: this.sessionId,
+          audioSize: audioData.length,
           error: extractErrorDetails(error),
           correlationId: CorrelationIdManager.getCurrentCorrelationId()
         });
-        // Don't re-throw to allow graceful degradation
+        throw new AudioProcessingError('Failed to stream audio immediately', this.sessionId, error as Error);
       }
     }, { 
       'session.id': this.sessionId,
-      'audio.size': audioData.length 
+      'audio.size': audioData.length,
+      'processing.mode': 'immediate'
     });
   }
 
@@ -965,6 +973,9 @@ export class StreamSession {
 
   /**
    * Processes the audio queue in batches with correlation ID management
+   * 
+   * NOTE: In ultra-low latency mode, this method is bypassed as audio is
+   * processed immediately in streamAudio() without queuing.
    */
   private async processAudioQueue(): Promise<void> {
     if (this.isProcessingAudio || this.audioBufferQueue.length === 0 || !this.isActive) {
