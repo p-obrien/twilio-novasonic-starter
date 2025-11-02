@@ -9,7 +9,7 @@ import { firstValueFrom } from 'rxjs';
 import { take, filter } from 'rxjs/operators';
 import { inspect } from 'util';
 import logger from '../observability/logger';
-import { SessionData } from '../session/SessionManager';
+import { SessionData } from '../client';
 import { EventDispatcher } from '../events/EventDispatcher';
 
 export class StreamProcessor {

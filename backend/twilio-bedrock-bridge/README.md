@@ -14,6 +14,9 @@ A production-ready, real-time bridge service that connects Twilio Voice calls to
 ### 🧠 AI Knowledge & Agent Integration
 - **Bedrock Knowledge Bases**: Automatic document ingestion with Aurora Serverless vector storage (95% cost savings vs OpenSearch)
 - **Intelligent Agents**: Configurable Bedrock Agents with custom action groups and foundation model selection
+- **Agent Core Integration**: AWS Bedrock Agent Runtime for real-time tool execution during voice conversations
+- **Weather Tool**: Production-ready weather tool with voice-optimized responses and API integration
+- **Tool Registry**: Dynamic tool discovery and registration system for extensible agent capabilities
 - **Auto-Ingestion**: Real-time document processing triggered by S3 uploads with smart duplicate prevention
 - **Multi-Modal Support**: Text, document, and voice processing with seamless integration
 - **Context-Aware Conversations**: Knowledge base retrieval integrated into voice conversations
@@ -70,9 +73,15 @@ A production-ready, real-time bridge service that connects Twilio Voice calls to
                                  └─────────────────┘                      └─────────────────┘
                                           │
                                           ▼
+                                 ┌─────────────────┐    Tool Execution    ┌─────────────────┐
+                                 │ Agent Core      │ ◄──────────────────► │ Weather Tool    │
+                                 │ Manager         │                      │ & Tool Registry │
+                                 └─────────────────┘                      └─────────────────┘
+                                          │
+                                          ▼
                                  ┌─────────────────┐
                                  │  Voice Bridge   │
-                                 │  Integration    │
+                                 │  Nova Sonic     │
                                  └─────────────────┘
 ```
 
@@ -110,6 +119,13 @@ A production-ready, real-time bridge service that connects Twilio Voice calls to
 twilio-nova-sonic-starter/
 ├── backend/twilio-bedrock-bridge/          # 🎯 Core application
 │   ├── src/                               # TypeScript source code
+│   │   ├── agents/                        # 🤖 Agent Core integration and management
+│   │   │   ├── AgentCoreManager.ts        # AWS Bedrock Agent Runtime client
+│   │   │   ├── WeatherAgent.ts            # Weather-specific agent wrapper
+│   │   │   ├── ToolRegistry.ts            # Dynamic tool discovery and registration
+│   │   │   └── types/                     # Agent-specific type definitions
+│   │   ├── tools/                         # 🛠️ Agent tools and capabilities
+│   │   │   └── WeatherTool.ts             # Production weather tool with API integration
 │   │   ├── audio/                         # Audio processing, buffering, and quality analysis
 │   │   ├── config/                        # Configuration management and validation
 │   │   ├── errors/                        # Domain-specific error classes
@@ -121,7 +137,8 @@ twilio-nova-sonic-starter/
 │   │   ├── streaming/                     # Stream processing and format conversion
 │   │   ├── types/                         # TypeScript type definitions
 │   │   ├── utils/                         # Utilities (logging, correlation, constants)
-│   │   ├── client.ts                      # Main Bedrock Nova Sonic client
+│   │   ├── examples/                      # 📚 Usage examples and demonstrations
+│   │   ├── client.ts                      # Main Bedrock Nova Sonic client with Agent Core
 │   │   └── server.ts                      # Express server with observability
 │   ├── __tests__/                         # Comprehensive test suite (95%+ coverage)
 │   └── Dockerfile                         # Container configuration
@@ -155,6 +172,7 @@ twilio-nova-sonic-starter/
 
 ### AWS Permissions Required
 - Bedrock model access (specifically `amazon.nova-sonic-v1:0`)
+- Bedrock Agent Runtime access (`bedrock-agent-runtime:InvokeAgent`)
 - CloudWatch metrics and logs
 - ECS, ALB, VPC, Route53 (for infrastructure deployment)
 - ECR (for container registry)
@@ -197,6 +215,17 @@ All `.tf` files work with both OpenTofu (`tofu` command) and Terraform (`terrafo
 | `ENABLE_XRAY` | No | `true` | Enable AWS X-Ray distributed tracing |
 | `ENABLE_DEBUG_LOGGING` | No | `false` | Enable detailed application flow logging |
 | `ENABLE_NOVA_DEBUG_LOGGING` | No | `false` | Enable AI model interaction logging |
+
+#### Agent Core Configuration
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `BEDROCK_AGENT_ID` | Yes* | - | AWS Bedrock Agent ID for tool execution |
+| `BEDROCK_AGENT_ALIAS_ID` | No | `TSTALIASID` | Agent alias ID (use TSTALIASID for testing) |
+| `BEDROCK_AGENT_ENABLE_TRACE` | No | `false` | Enable detailed agent execution tracing |
+| `WEATHER_API_KEY` | No | - | OpenWeatherMap API key (uses mock data if not provided) |
+| `DEFAULT_WEATHER_UNITS` | No | `fahrenheit` | Default temperature units for weather responses |
+
+*Required for agent functionality. Service will use mock responses if not configured.
 
 #### Memory Monitoring Configuration
 | Variable | Required | Default | Description |
@@ -346,6 +375,296 @@ cd infrastructure/environments/production
 terraform plan
 terraform apply
 ```
+
+## 🤖 Agent Core Integration
+
+The service includes comprehensive AWS Bedrock Agent Runtime integration, enabling Nova Sonic to execute tools and perform tasks during voice conversations.
+
+### Agent Core Architecture
+
+```
+Voice Input → Nova Sonic → Tool Use Event → Agent Runtime → Tool Execution → Voice Response
+     ↑                                                                           ↓
+Twilio ←─────────────────── Speech Synthesis ←─────────────── Tool Result ←─────┘
+```
+
+### Key Components
+
+#### AgentCoreManager
+- **AWS Integration**: Direct integration with Bedrock Agent Runtime
+- **Session Management**: Maintains conversation context across tool executions
+- **Voice Optimization**: Formats agent responses for natural speech
+- **Error Handling**: Comprehensive error handling with voice-friendly messages
+
+#### Weather Tool
+- **Production Ready**: Full weather API integration with OpenWeatherMap
+- **Voice Optimized**: Natural language responses designed for speech
+- **Caching**: 10-minute cache to reduce API calls and improve performance
+- **Mock Data**: Works without API key for testing and development
+
+#### Tool Registry
+- **Dynamic Discovery**: Automatic tool registration and discovery
+- **Voice Metadata**: Tool descriptions optimized for voice interactions
+- **Categorization**: Organized tool categories for better management
+- **Extensible**: Easy to add new tools and capabilities
+
+### Setting Up Agent Core
+
+#### 1. Create Bedrock Agent
+
+```bash
+# Create agent via AWS CLI (or use AWS Console)
+aws bedrock-agent create-agent \
+  --agent-name "voice-assistant" \
+  --foundation-model "amazon.nova-sonic-v1:0" \
+  --instruction "You are a helpful voice assistant that can provide weather information and answer questions."
+
+# Create agent alias
+aws bedrock-agent create-agent-alias \
+  --agent-id "YOUR_AGENT_ID" \
+  --agent-alias-name "production" \
+  --description "Production voice assistant"
+```
+
+#### 2. Configure Environment
+
+```bash
+# Required for agent functionality
+export BEDROCK_AGENT_ID="your-agent-id-here"
+export BEDROCK_AGENT_ALIAS_ID="your-agent-alias-id"
+
+# Optional weather API integration
+export WEATHER_API_KEY="your-openweathermap-api-key"
+
+# Optional debugging
+export BEDROCK_AGENT_ENABLE_TRACE=true
+export LOG_LEVEL=DEBUG
+```
+
+#### 3. Test Agent Integration
+
+```bash
+# Build and test
+npm run build
+npm test
+
+# Run weather tool examples
+node dist/examples/WeatherExample.js
+```
+
+### Voice Conversation Examples
+
+#### Weather Queries
+- **User**: *"What's the weather like in San Francisco?"*
+- **Nova Sonic**: *"The weather in San Francisco is currently sunny with a temperature of 72 degrees fahrenheit."*
+
+#### Error Handling
+- **User**: *"What's the weather in Atlantis?"*
+- **Nova Sonic**: *"I couldn't find weather information for Atlantis. Please try a different location or be more specific."*
+
+### Agent Core Configuration
+
+#### Basic Configuration
+```typescript
+import { NovaSonicBidirectionalStreamClient } from './client';
+
+const client = new NovaSonicBidirectionalStreamClient({
+  clientConfig: { region: 'us-east-1' },
+  bedrock: {
+    region: 'us-east-1',
+    modelId: 'amazon.nova-sonic-v1:0'
+  },
+  agentCore: {
+    agentId: process.env.BEDROCK_AGENT_ID,
+    agentAliasId: process.env.BEDROCK_AGENT_ALIAS_ID,
+    timeout: 15000, // 15 seconds for voice interactions
+    enableTrace: false
+  }
+});
+```
+
+#### Advanced Configuration
+```typescript
+import { createWeatherAgent } from './agents/WeatherAgent';
+
+// Create specialized weather agent
+const weatherAgent = createWeatherAgent({
+  agentId: process.env.BEDROCK_AGENT_ID,
+  agentAliasId: process.env.BEDROCK_AGENT_ALIAS_ID,
+  weatherApiKey: process.env.WEATHER_API_KEY,
+  defaultUnits: 'fahrenheit',
+  enableCaching: true,
+  includeForecast: true
+});
+
+// Test weather functionality
+const testResult = await weatherAgent.testWeather('New York');
+console.log('Weather test result:', testResult);
+```
+
+### Available Tools
+
+#### Weather Tool (`get_weather`)
+- **Description**: Get current weather conditions and forecast for any location
+- **Parameters**:
+  - `location` (required): City, state, country, or address
+  - `units` (optional): Temperature units (`celsius` or `fahrenheit`)
+  - `include_forecast` (optional): Include forecast information
+- **Example**: *"What's the weather in London, UK?"*
+
+#### Quick Weather Check (`check_weather`)
+- **Description**: Quick weather check for current conditions only
+- **Parameters**:
+  - `location` (required): Location for weather check
+- **Example**: *"Quick weather update for Miami"*
+
+### Adding Custom Tools
+
+#### 1. Create Tool Implementation
+```typescript
+// tools/CustomTool.ts
+export class CustomTool {
+  async execute(input: { query: string }): Promise<{
+    success: boolean;
+    speechText: string;
+    data?: any;
+  }> {
+    // Your tool logic here
+    return {
+      success: true,
+      speechText: `I've processed your request: ${input.query}`,
+      data: { result: 'custom response' }
+    };
+  }
+}
+```
+
+#### 2. Register Tool
+```typescript
+// Register with tool registry
+import { toolRegistry, ToolCategory } from './agents/ToolRegistry';
+
+toolRegistry.registerTool('custom_tool', {
+  definition: {
+    toolSpec: {
+      name: 'custom_tool',
+      description: 'Custom tool for specific functionality',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'User query' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  metadata: {
+    expectedExecutionTime: 2000,
+    supportsRealTime: true,
+    voiceDescription: 'Custom functionality for voice interactions',
+    examplePhrases: ['Help me with custom task', 'Run custom function'],
+    category: ToolCategory.UTILITY
+  }
+});
+```
+
+### Agent Core Monitoring
+
+#### Performance Metrics
+```typescript
+// Get agent statistics
+const stats = client.getAgentCoreStats();
+console.log('Agent Core Stats:', {
+  activeSessions: stats.activeSessions,
+  configuration: stats.configuration
+});
+
+// Monitor tool execution
+client.registerEventHandler(sessionId, 'toolResult', (result) => {
+  console.log('Tool executed:', {
+    toolUseId: result.toolUseId,
+    status: result.status,
+    responseLength: result.content[0]?.text?.length
+  });
+});
+```
+
+#### Error Monitoring
+```typescript
+// Monitor tool errors
+client.registerEventHandler(sessionId, 'toolError', (error) => {
+  console.error('Tool execution failed:', {
+    toolName: error.toolName,
+    error: error.error,
+    sessionId: error.sessionId
+  });
+});
+```
+
+### Troubleshooting Agent Core
+
+#### Common Issues
+
+1. **Agent Not Found**
+   ```bash
+   # Verify agent exists and is prepared
+   aws bedrock-agent get-agent --agent-id $BEDROCK_AGENT_ID
+   ```
+
+2. **Permission Denied**
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["bedrock-agent-runtime:InvokeAgent"],
+         "Resource": ["arn:aws:bedrock:*:*:agent/*"]
+       }
+     ]
+   }
+   ```
+
+3. **Tool Not Executing**
+   ```bash
+   # Enable debug mode
+   export BEDROCK_AGENT_ENABLE_TRACE=true
+   export LOG_LEVEL=DEBUG
+   
+   # Check tool registration
+   node -e "console.log(require('./dist/agents/ToolRegistry').toolRegistry.getStats())"
+   ```
+
+#### Debug Mode
+```bash
+# Enable comprehensive debugging
+export BEDROCK_AGENT_ENABLE_TRACE=true
+export LOG_LEVEL=DEBUG
+export ENABLE_DEBUG_LOGGING=true
+
+# Run with debug output
+npm start
+```
+
+### Agent Core Best Practices
+
+#### Voice-First Design
+- Keep tool responses concise and conversational
+- Use natural language in tool descriptions
+- Provide voice-friendly error messages
+- Test responses by reading them aloud
+
+#### Performance Optimization
+- Set appropriate timeouts for voice interactions (< 15 seconds)
+- Use minimal retries for real-time conversations
+- Cache tool results when appropriate
+- Monitor tool execution times
+
+#### Error Handling
+- Always provide fallback responses
+- Use voice-appropriate error messages
+- Log errors with correlation IDs for debugging
+- Implement graceful degradation
 
 ## Quick Start
 
@@ -536,6 +855,32 @@ aws ecs describe-services --cluster your-cluster --services twilio-bridge
 Set your Twilio webhook URL to: `https://your-domain.com/webhook`
 
 ## 🚀 Advanced Features
+
+### Agent Tool Execution
+```bash
+# Test weather tool directly
+node -e "
+const { weatherTool } = require('./dist/tools/WeatherTool');
+weatherTool.execute({ location: 'San Francisco', units: 'fahrenheit' })
+  .then(result => console.log('Weather:', result.speechText));
+"
+
+# Test agent integration
+node -e "
+const { createWeatherAgent } = require('./dist/agents/WeatherAgent');
+const agent = createWeatherAgent({
+  agentId: process.env.BEDROCK_AGENT_ID,
+  agentAliasId: process.env.BEDROCK_AGENT_ALIAS_ID
+});
+agent.testWeather('New York').then(success => console.log('Test result:', success));
+"
+
+# Monitor tool registry
+node -e "
+const { toolRegistry } = require('./dist/agents/ToolRegistry');
+console.log('Available tools:', toolRegistry.getStats());
+"
+```
 
 ### Knowledge Base Management
 ```bash
@@ -966,6 +1311,10 @@ memoryMonitor.on('memory_warning', (health) => {
 - [x] Aurora Serverless vector storage (95% cost savings)
 - [x] Automatic document ingestion with S3 triggers
 - [x] Bedrock Agent integration with custom actions
+- [x] **AWS Bedrock Agent Runtime integration for real-time tool execution**
+- [x] **Production weather tool with voice-optimized responses**
+- [x] **Dynamic tool registry and discovery system**
+- [x] **Agent Core Manager with session management and error handling**
 - [x] Production-ready infrastructure with auto-scaling
 - [x] Comprehensive monitoring and observability
 - [x] 95%+ test coverage across all components
@@ -978,6 +1327,7 @@ memoryMonitor.on('memory_warning', (health) => {
 - [ ] Multi-language support with automatic detection
 
 ### 🎯 Planned
+- [ ] Additional agent tools (calendar, email, database queries)
 - [ ] Advanced voice activity detection improvements
 - [ ] Conversation analytics and insights dashboard
 - [ ] Custom voice profiles and personalization
@@ -985,6 +1335,7 @@ memoryMonitor.on('memory_warning', (health) => {
 - [ ] Real-time conversation transcription and analysis
 - [ ] Integration with additional Bedrock foundation models
 - [ ] Advanced agent orchestration and workflow automation
+- [ ] Multi-agent collaboration and handoff capabilities
 
 ## Contributing
 

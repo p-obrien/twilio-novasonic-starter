@@ -31,10 +31,10 @@
   },
   "homepage": "https://github.com/paulobrien/twilio-bedrock-bridge#readme",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node scripts/start.js",
     "start:dev": "LOG_LEVEL=debug ENABLE_XRAY=false node scripts/start.js",
-    "dev": "tsc --watch",
+    "dev": "tsc --watch -p tsconfig.build.json",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -53,7 +53,8 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-agent-runtime": "^3.906.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.922.0",
+    "@aws-sdk/client-bedrock-agentcore": "^3.922.0",
     "@aws-sdk/client-bedrock-runtime": "^3.888.0",
     "@aws-sdk/client-cloudwatch": "^3.899.0",
     "@aws-sdk/credential-providers": "^3.888.0",

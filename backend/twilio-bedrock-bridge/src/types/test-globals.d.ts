@@ -1,6 +1,8 @@
 /**
- * Global test utility types
+ * Global test utility types and Jest globals
  */
+
+/// <reference types="jest" />
 
 declare global {
   function createTestBuffer(size: number, pattern?: number): Buffer;
