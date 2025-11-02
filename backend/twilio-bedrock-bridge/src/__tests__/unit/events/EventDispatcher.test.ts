@@ -6,8 +6,8 @@
  */
 
 import { EventDispatcher, NormalizedEventData } from '../../../events/EventDispatcher';
-import { SessionData } from '../../../session/SessionManager';
 import { Subject } from 'rxjs';
+import { SessionData } from '../../../session';
 
 describe('EventDispatcher', () => {
   let eventDispatcher: EventDispatcher;

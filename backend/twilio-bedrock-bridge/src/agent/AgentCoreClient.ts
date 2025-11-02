@@ -1,19 +1,33 @@
 /**
  * @fileoverview Agent Core Client for AWS Bedrock Agent Integration
- * 
+ *
  * This module provides a simple interface to AWS Bedrock Agent service,
- * enabling agent-based reasoning and multi-step task execution during
- * voice conversations.
- * 
+ * enabling autonomous agent-based reasoning, multi-step task execution,
+ * and knowledge base retrieval during voice conversations.
+ *
  * Key Features:
  * - Direct integration with Bedrock Agent Runtime API
+ * - Autonomous knowledge base retrieval (agent handles KB queries internally)
  * - Agent invocation with input/output handling
  * - Basic error handling and timeout management
  * - Session management for agent continuity
  * - Voice conversation optimized response formatting
- * 
+ * - Graceful degradation for agent failures
+ *
+ * IMPORTANT: Knowledge Base Access
+ * ================================
+ * The agent autonomously handles all knowledge base retrieval through its
+ * configured KB associations in infrastructure. There is NO need to manually
+ * query knowledge bases - the agent will automatically retrieve relevant
+ * information when needed based on user input.
+ *
+ * The agent is configured in infrastructure with:
+ * - Knowledge base associations (infrastructure/modules/bedrock-agent/main.tf:161-171)
+ * - IAM permissions for bedrock:Retrieve (infrastructure/modules/bedrock-agent/main.tf:54-71)
+ * - Automatic KB integration through InvokeAgent API
+ *
  * @author Twilio Bedrock Bridge Team
- * @version 1.0.0
+ * @version 2.0.0
  */
 
 import {

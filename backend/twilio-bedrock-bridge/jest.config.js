@@ -2,10 +2,9 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   
-  // Clean test structure - only new tests
+  // Test structure - includes all test files
   testMatch: [
-    '<rootDir>/src/__tests__/unit/**/*.test.ts',
-    '<rootDir>/src/__tests__/integration/**/*.test.ts'
+    '<rootDir>/src/__tests__/**/*.test.ts'
   ],
   
   // Ignore legacy and backup tests

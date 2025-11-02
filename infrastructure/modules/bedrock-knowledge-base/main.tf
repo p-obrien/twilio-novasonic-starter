@@ -44,7 +44,7 @@ resource "aws_rds_cluster" "knowledge_base_vector_db" {
   cluster_identifier     = "${var.knowledge_base_name}-vector-db"
   engine                = "aurora-postgresql"
   engine_mode           = "provisioned"
-  engine_version        = "15.4"
+  engine_version        = "17.4"
   database_name         = var.database_name
   master_username       = var.db_username
   manage_master_user_password = true

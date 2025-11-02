@@ -58,6 +58,8 @@ import {
 } from './errors/ClientErrors';
 import { isValidSessionId } from './types/TypeGuards';
 import { validateInferenceConfig } from './utils/ValidationUtils';
+import { AgentCoreManager, AgentCoreConfig, NovaToolUseEvent } from './agents/AgentCoreManager';
+import { toolRegistry } from './agents/ToolRegistry';
 
 // ============================================================================
 // TYPES AND INTERFACES
@@ -73,9 +75,10 @@ export interface NovaSonicBidirectionalStreamClientConfig {
   };
   enableOrchestrator?: boolean;
   enableOrchestratorDebug?: boolean;
+  agentCore?: AgentCoreConfig;
 }
 
-interface SessionData {
+export interface SessionData {
   queue: Array<any>;
   queueSignal: Subject<void>;
   closeSignal: Subject<void>;
@@ -119,6 +122,7 @@ export class NovaSonicBidirectionalStreamClient {
   private cleanupTimer: NodeJS.Timeout | null = null;
   private readonly SESSION_TIMEOUT_MS = 300000; // 5 minutes
   private readonly CLEANUP_INTERVAL_MS = 60000; // 1 minute
+  private readonly agentCoreManager?: AgentCoreManager;
 
   // ============================================================================
   // CONSTRUCTOR
@@ -127,6 +131,16 @@ export class NovaSonicBidirectionalStreamClient {
   constructor(config: NovaSonicBidirectionalStreamClientConfig) {
     this.bedrockRuntimeClient = this.createBedrockClient(config);
     this.inferenceConfig = this.createInferenceConfig(config.inferenceConfig);
+    
+    // Initialize Agent Core if configured
+    if (config.agentCore) {
+      this.agentCoreManager = new AgentCoreManager(config.agentCore, config.clientConfig);
+      logger.info('Agent Core integration enabled', {
+        agentId: config.agentCore.agentId,
+        agentAliasId: config.agentCore.agentAliasId
+      });
+    }
+    
     this.startPeriodicCleanup();
   }
 
@@ -467,7 +481,9 @@ export class NovaSonicBidirectionalStreamClient {
           promptName: session.promptName,
           textOutputConfiguration: { mediaType: "text/plain" },
           audioOutputConfiguration: DefaultAudioOutputConfiguration,
-          toolConfiguration: { tools: [] },
+          toolConfiguration: { 
+            tools: this.agentCoreManager ? toolRegistry.getAllToolDefinitions() : []
+          },
         },
       }
     });
@@ -957,6 +973,116 @@ export class NovaSonicBidirectionalStreamClient {
   }
 
   /**
+   * Execute tool via Agent Core
+   */
+  private async executeToolViaAgentCore(sessionId: string, toolUse: NovaToolUseEvent): Promise<void> {
+    if (!this.agentCoreManager) {
+      logger.error('Agent Core not available for tool execution', { sessionId, toolName: toolUse.name });
+      return;
+    }
+
+    const session = this.activeSessions.get(sessionId);
+    if (!session) {
+      logger.error('Session not found for tool execution', { sessionId, toolName: toolUse.name });
+      return;
+    }
+
+    try {
+      logger.info('Executing tool via Agent Core', {
+        sessionId,
+        toolUseId: toolUse.toolUseId,
+        toolName: toolUse.name,
+        correlationId: CorrelationIdManager.getCurrentCorrelationId()
+      });
+
+      // Get agent configuration (you may want to make this configurable per session)
+      const agentConfig: AgentCoreConfig = {
+        agentId: 'your-agent-id', // This should come from configuration
+        agentAliasId: 'TSTALIASID', // This should come from configuration
+        sessionId: sessionId,
+        timeout: 15000, // 15 seconds for voice interactions
+        enableTrace: false
+      };
+
+      // Execute tool asynchronously to avoid blocking the stream
+      this.agentCoreManager.executeTool(toolUse, agentConfig)
+        .then(toolResult => {
+          // Send tool result back to Nova Sonic
+          this.addEventToSessionQueue(sessionId, {
+            event: {
+              toolResult: {
+                toolUseId: toolResult.toolUseId,
+                content: toolResult.content
+              }
+            }
+          });
+
+          logger.info('Tool execution completed successfully', {
+            sessionId,
+            toolUseId: toolUse.toolUseId,
+            toolName: toolUse.name,
+            status: toolResult.status,
+            correlationId: CorrelationIdManager.getCurrentCorrelationId()
+          });
+
+          // Dispatch event for observability
+          this.dispatchEvent(sessionId, 'toolResult', toolResult);
+        })
+        .catch(error => {
+          logger.error('Tool execution failed', {
+            sessionId,
+            toolUseId: toolUse.toolUseId,
+            toolName: toolUse.name,
+            error: extractErrorDetails(error),
+            correlationId: CorrelationIdManager.getCurrentCorrelationId()
+          });
+
+          // Send error result back to Nova Sonic
+          this.addEventToSessionQueue(sessionId, {
+            event: {
+              toolResult: {
+                toolUseId: toolUse.toolUseId,
+                content: [{ 
+                  text: `I encountered an error while executing ${toolUse.name}. Please try again.` 
+                }]
+              }
+            }
+          });
+
+          // Dispatch error event
+          this.dispatchEvent(sessionId, 'toolError', {
+            toolUseId: toolUse.toolUseId,
+            toolName: toolUse.name,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
+
+    } catch (error) {
+      logger.error('Failed to initiate tool execution', {
+        sessionId,
+        toolUseId: toolUse.toolUseId,
+        toolName: toolUse.name,
+        error: extractErrorDetails(error),
+        correlationId: CorrelationIdManager.getCurrentCorrelationId()
+      });
+    }
+  }
+
+  /**
+   * Check if Agent Core is enabled
+   */
+  public isAgentCoreEnabled(): boolean {
+    return !!this.agentCoreManager;
+  }
+
+  /**
+   * Get Agent Core statistics
+   */
+  public getAgentCoreStats() {
+    return this.agentCoreManager?.getStats() || null;
+  }
+
+  /**
    * Cleanup method (alias for shutdown)
    */
   public cleanup(): void {
@@ -977,6 +1103,13 @@ export class NovaSonicBidirectionalStreamClient {
     const activeSessions = Array.from(this.activeSessions.keys());
     for (const sessionId of activeSessions) {
       this.forceCloseSession(sessionId);
+    }
+
+    // Cleanup Agent Core if available
+    if (this.agentCoreManager) {
+      this.agentCoreManager.cleanup().catch(error => {
+        logger.warn('Error during Agent Core cleanup', { error: extractErrorDetails(error) });
+      });
     }
 
     logger.info('NovaSonicBidirectionalStreamClient shutdown complete');
@@ -1480,10 +1613,12 @@ export class NovaSonicBidirectionalStreamClient {
               } else if (evt.completionEnd) {
                 this.dispatchEvent(sessionId, 'completionEnd', evt.completionEnd);
               } else if (evt.toolUse) {
-                // Forward toolUse for observability / potential client-side handling
-                logger.info(`ToolUse event received for session ${sessionId}; forwarding to handlers.`);
+                // Handle tool use via Agent Core
+                logger.info(`ToolUse event received for session ${sessionId}: ${evt.toolUse.name}`);
                 evt.toolUse = this.normalizeForHandlers(evt.toolUse);
-                this.dispatchEvent(sessionId, 'toolUse', evt.toolUse);
+                
+                // Execute tool via Agent Core (always available)
+                this.executeToolViaAgentCore(sessionId, evt.toolUse as NovaToolUseEvent);
               } else if (evt.toolResult) {
                 // Note: toolResult is not documented in Nova output events, but keeping for compatibility
                 evt.toolResult = this.normalizeForHandlers(evt.toolResult);

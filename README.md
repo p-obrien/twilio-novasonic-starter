@@ -129,8 +129,6 @@ twilio-bedrock-bridge/
 │   │   ├── staging/                      # Staging environment
 │   │   └── prod/                         # Production environment
 │   ├── bootstrap/                        # Initial setup (S3 state backend)
-│   ├── AURORA_SERVERLESS_MIGRATION.md    # Migration guide
-│   └── AUTO_INGESTION_GUIDE.md           # Auto-ingestion documentation
 └── scripts/                              # 🔧 Build and deployment tools
     ├── build-and-push.sh                # Container build automation
     └── deploy.sh                        # Deployment automation
