@@ -8,27 +8,27 @@ This repository contains a complete production-ready solution with advanced AI c
 
 ## Features
 
-### 🎯 Core Voice Capabilities
+### Core Voice Capabilities
 - **Real-time Bidirectional Streaming**: Ultra-low latency audio streaming between Twilio and AWS Bedrock Nova Sonic
 - **Advanced Session Management**: Concurrent session handling with automatic cleanup and resource management
 - **Intelligent Audio Processing**: Automatic format conversion, quality analysis, and adaptive buffering
 - **Real-time Interruption Support**: Natural conversation flow with voice activity detection and model interruption
 - **Production-Ready Security**: Webhook signature validation, WebSocket security, and rate limiting
 
-### 🧠 AI Knowledge & Agent Integration
+### AI Knowledge & Agent Integration
 - **Bedrock Knowledge Bases**: Automatic document ingestion with Aurora Serverless vector storage (95% cost savings vs OpenSearch)
 - **Intelligent Agents**: Configurable Bedrock Agents with custom action groups and foundation model selection
 - **Auto-Ingestion**: Real-time document processing triggered by S3 uploads with smart duplicate prevention
 - **Multi-Modal Support**: Text, document, and voice processing with seamless integration
 - **Context-Aware Conversations**: Knowledge base retrieval integrated into voice conversations
 
-### 💰 Cost-Optimized Infrastructure
+### Cost-Optimized Infrastructure
 - **Aurora Serverless v2**: PostgreSQL with pgvector for vector storage (~$13-52/month vs $700+ for OpenSearch Serverless)
 - **Auto-Scaling**: Pay-per-use Lambda functions and Aurora capacity units (ACUs) that scale to zero
 - **Smart Resource Management**: Automatic scaling based on demand with predictable costs
 - **Efficient Storage**: S3 document storage with lifecycle policies and intelligent tiering
 
-### 📊 Enterprise Observability
+### Enterprise Observability
 - **Comprehensive Metrics**: CloudWatch integration with custom metrics for audio quality, session performance, and system health
 - **Advanced Memory Monitoring**: Real-time memory usage tracking, leak detection, and automatic cleanup
 - **Unified Tracing**: OpenTelemetry and X-Ray integration with intelligent fallback for distributed tracing
@@ -36,7 +36,7 @@ This repository contains a complete production-ready solution with advanced AI c
 - **Smart Sampling**: Adaptive sampling rates based on operation type and system load
 - **Auto-Ingestion Monitoring**: CloudWatch logs and metrics for knowledge base ingestion jobs
 
-### 🏗️ Production Infrastructure
+### Production Infrastructure
 - **Auto-scaling ECS**: Container-based deployment with Application Load Balancer and auto-scaling
 - **High Availability**: Multi-AZ deployment with health checks and automatic failover
 - **Secure by Design**: VPC isolation, SSL/TLS termination, and comprehensive security controls
@@ -45,7 +45,7 @@ This repository contains a complete production-ready solution with advanced AI c
 
 ## Architecture
 
-### 🎙️ Voice Processing Flow
+### Voice Processing Flow
 ```
 ┌─────────────┐    WebSocket     ┌─────────────────┐    Bidirectional    ┌─────────────┐
 │   Twilio    │ ◄──────────────► │  Bridge Service │ ◄─────────────────► │ AWS Bedrock │
@@ -60,7 +60,7 @@ This repository contains a complete production-ready solution with advanced AI c
                                  └─────────────────┘
 ```
 
-### 🧠 AI Knowledge & Agent Integration
+### AI Knowledge & Agent Integration
 ```
 ┌─────────────┐    S3 Events     ┌─────────────────┐    Vector Search    ┌─────────────────┐
 │  Documents  │ ────────────────► │  Auto-Ingestion │ ──────────────────► │ Aurora Serverless│
@@ -80,7 +80,7 @@ This repository contains a complete production-ready solution with advanced AI c
                                  └─────────────────┘
 ```
 
-### 🏗️ Infrastructure Architecture
+### Infrastructure Architecture
 ```
 ┌─────────────┐    HTTPS/WSS     ┌─────────────────┐    Private Network    ┌─────────────┐
 │  Internet   │ ◄──────────────► │  Application    │ ◄───────────────────► │     ECS     │
@@ -101,7 +101,7 @@ This repository contains a complete production-ready solution with advanced AI c
                                  └─────────────────┘
 ```
 
-### 💰 Cost Comparison
+### Cost Comparison
 | Component | Traditional | This Solution | Savings |
 |-----------|-------------|---------------|---------|
 | Vector Storage | OpenSearch Serverless (~$700/month) | Aurora Serverless (~$13-52/month) | **95%** |
@@ -109,18 +109,18 @@ This repository contains a complete production-ready solution with advanced AI c
 | Storage | Premium tiers | S3 with lifecycle policies | **40-60%** |
 
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 twilio-bedrock-bridge/
-├── backend/twilio-bedrock-bridge/          # 🎯 Core application
+├── backend/twilio-bedrock-bridge/          # Core application
 │   ├── src/                               # TypeScript source code
 │   ├── __tests__/                         # Comprehensive test suite
 │   └── Dockerfile                         # Container configuration
-├── infrastructure/                        # 🏗️ Infrastructure as Code
+├── infrastructure/                        # Infrastructure as Code
 │   ├── modules/                          # Reusable Terraform modules
-│   │   ├── bedrock-knowledge-base/       # 🧠 Aurora Serverless + auto-ingestion
-│   │   ├── bedrock-agent/                # 🤖 Intelligent agents with actions
+│   │   ├── bedrock-knowledge-base/       # Aurora Serverless + auto-ingestion
+│   │   ├── bedrock-agent/                # Intelligent agents with actions
 │   │   ├── ecs/                          # Container orchestration
 │   │   ├── alb/                          # Load balancing + SSL
 │   │   └── vpc/                          # Network infrastructure
@@ -191,31 +191,60 @@ tofu apply
 cd ../environments/dev  # or staging/prod
 tofu init
 
-# The terraform.tfvars is pre-configured with optimal settings
-# Key configurations included:
-# - Aurora Serverless v2 for 95% cost savings
-# - Auto-ingestion enabled for real-time knowledge updates
-# - Bedrock Agent with Nova Sonic integration
-# - Production-ready security and monitoring
+# Configure your deployment by editing terraform.tfvars
+# Key settings to customize:
+# - domain_name: Your domain for the service endpoint
+# - hosted_zone_id: Your Route53 hosted zone ID
+# - twilio_auth_token: Your Twilio authentication token
+# - create_knowledge_base: Enable AI knowledge capabilities (true/false)
+# - create_agent: Enable Bedrock Agent integration (true/false)
+
+# Review and customize the configuration
+nano terraform.tfvars
 
 tofu plan  # Review the infrastructure plan
 tofu apply # Deploy Aurora Serverless + AI capabilities
 ```
 
-#### What Gets Deployed
-✅ **Cost-Optimized AI Infrastructure**
-- Aurora Serverless v2 PostgreSQL with pgvector (~$13-52/month)
-- Auto-ingestion Lambda for real-time document processing
-- Bedrock Knowledge Base with S3 document storage
-- Bedrock Agent with configurable foundation models
+#### Required Configuration
 
-✅ **Production Infrastructure**
+Before deploying, you'll need to update the following values in `terraform.tfvars`:
+
+**Essential Settings:**
+- `domain_name`: Your domain name for the service (e.g., "your-app.yourdomain.com")
+- `hosted_zone_id`: Your Route53 hosted zone ID for SSL certificate validation
+- `twilio_auth_token`: Your Twilio Auth Token from the Twilio Console
+
+**AI Features (Fully Automated):**
+- `create_knowledge_base`: Set to `true` to deploy Aurora Serverless KB with auto-ingestion
+- `create_agent`: Set to `true` to deploy Bedrock Agent with knowledge integration
+- `agent_foundation_model_ids`: Choose your preferred AI models (Claude, Nova Sonic, etc.)
+
+> **Note**: When enabled, the Knowledge Base and Agent are fully deployed and configured automatically. No manual setup or document upload is required - the system handles all knowledge operations autonomously.
+
+**Example configuration:**
+```hcl
+domain_name = "twilio-bridge.yourdomain.com"
+hosted_zone_id = "Z1234567890ABC"
+twilio_auth_token = "your_twilio_auth_token_here"
+create_knowledge_base = true
+create_agent = true
+```
+
+#### What Gets Deployed
+**Fully Automated AI Infrastructure**
+- Aurora Serverless v2 PostgreSQL with pgvector (~$13-52/month)
+- Bedrock Knowledge Base with automatic document ingestion
+- Bedrock Agent with pre-configured foundation models
+- S3 document storage with lifecycle management
+
+**Production Infrastructure**
 - ECS cluster with auto-scaling (1-10 instances)
 - Application Load Balancer with SSL termination
 - VPC with public/private subnets across multiple AZs
 - CloudWatch monitoring and X-Ray tracing
 
-✅ **Security & Compliance**
+**Security & Compliance**
 - VPC isolation with private subnets
 - IAM roles with least-privilege access
 - Encryption at rest and in transit
@@ -227,35 +256,19 @@ After deployment, get your service URL:
 tofu output service_url
 ```
 
-### 4. Configure Knowledge Base (Optional)
-
-Upload documents to enable AI knowledge integration:
-
-```bash
-# Get the S3 bucket name from deployment outputs
-DOCS_BUCKET=$(tofu output -raw knowledge_base_s3_documents_bucket_name)
-
-# Upload documents (triggers automatic ingestion)
-aws s3 cp company-handbook.pdf s3://$DOCS_BUCKET/documents/
-aws s3 sync ./documents/ s3://$DOCS_BUCKET/documents/
-
-# Monitor auto-ingestion progress
-aws logs tail /aws/lambda/$(tofu output -raw knowledge_base_name)-auto-ingestion --follow
-```
-
-### 5. Update Twilio Webhook URL
+### 4. Update Twilio Webhook URL
 1. Get your service URL: `tofu output service_url`
 2. Return to your TwiML App in the Twilio Console
 3. Update the **Voice Request URL** to: `https://your-service-url/webhook/voice`
 4. Save the configuration
 
-### 6. Test the AI-Powered Voice System
+### 5. Test the AI-Powered Voice System
 
 Call your Twilio phone number to experience:
-- 🎙️ **Real-time voice conversations** with Nova Sonic
-- 🧠 **Knowledge-aware responses** from uploaded documents
-- 🤖 **Intelligent agent actions** and custom capabilities
-- 📊 **Production monitoring** and observability
+- **Real-time voice conversations** with Nova Sonic
+- **Intelligent agent capabilities** with automatic knowledge integration
+- **Production-ready infrastructure** with monitoring and observability
+- **Auto-scaling** and cost-optimized deployment
 
 ### Local Development
 
@@ -278,18 +291,17 @@ docker run -p 8080:8080 \
   twilio-bedrock-bridge
 ```
 
-## 🚀 Advanced Features
+## Advanced Features
 
-### Knowledge Base Management
+### Knowledge Base Operations
+The Knowledge Base is automatically deployed and configured by OpenTofu. All document ingestion and knowledge retrieval is handled automatically by the Bedrock Agent - no manual setup required.
+
 ```bash
-# Upload documents (auto-ingestion enabled)
-aws s3 cp document.pdf s3://your-kb-bucket/documents/
+# Monitor ingestion status (if needed for troubleshooting)
+aws bedrock-agent list-ingestion-jobs --knowledge-base-id $(tofu output -raw knowledge_base_id)
 
-# Monitor ingestion status
-aws bedrock-agent list-ingestion-jobs --knowledge-base-id $KB_ID
-
-# Test knowledge retrieval
-aws bedrock-agent retrieve --knowledge-base-id $KB_ID --retrieval-query "your question"
+# View auto-ingestion logs
+aws logs tail /aws/lambda/$(tofu output -raw knowledge_base_name)-auto-ingestion --follow
 ```
 
 ### Agent Configuration
@@ -310,21 +322,21 @@ aws cloudwatch get-metric-statistics \
 aws ce get-cost-and-usage --time-period Start=2024-01-01,End=2024-01-31
 ```
 
-## 📋 Roadmap
+## Roadmap
 
-### ✅ Completed
+### Completed
 - [x] Aurora Serverless vector storage (95% cost savings)
 - [x] Automatic document ingestion with S3 triggers
 - [x] Bedrock Agent integration with custom actions
 - [x] Production-ready infrastructure with auto-scaling
 - [x] Comprehensive monitoring and observability
 
-### 🔄 In Progress
+### In Progress
 - [ ] Make Nova Sonic Speak First (High Priority)
 - [ ] Enhanced conversation memory with knowledge context
 - [ ] Multi-language support with automatic detection
 
-### 🎯 Planned
+### Planned
 - [ ] Advanced voice activity detection improvements
 - [ ] Conversation analytics and insights dashboard
 - [ ] Custom voice profiles and personalization

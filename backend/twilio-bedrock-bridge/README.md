@@ -727,27 +727,11 @@ tofu apply # Deploy Aurora Serverless + AI capabilities
 - Encryption at rest and in transit
 - Webhook signature validation
 
-### 3. Configure Knowledge Base (Optional)
-
-Upload documents to enable AI knowledge integration:
-
-```bash
-# Get the S3 bucket name from deployment outputs
-DOCS_BUCKET=$(tofu output -raw knowledge_base_s3_documents_bucket_name)
-
-# Upload documents (triggers automatic ingestion)
-aws s3 cp company-handbook.pdf s3://$DOCS_BUCKET/documents/
-aws s3 sync ./documents/ s3://$DOCS_BUCKET/documents/
-
-# Monitor auto-ingestion progress
-aws logs tail /aws/lambda/$(tofu output -raw knowledge_base_name)-auto-ingestion --follow
-```
-
-### 4. Test the AI-Powered Voice System
+### 3. Test the AI-Powered Voice System
 
 Call your Twilio phone number to experience:
-- 🎙️ **Real-time voice conversations** with Nova Sonic
-- 🧠 **Knowledge-aware responses** from uploaded documents
+- **Real-time voice conversations** with Nova Sonic
+- **Intelligent agent capabilities** with automatic knowledge integration
 - 🤖 **Intelligent agent actions** and custom capabilities
 - 📊 **Production monitoring** and observability
 
@@ -884,14 +868,39 @@ console.log('Available tools:', toolRegistry.getStats());
 
 ### Knowledge Base Management
 ```bash
-# Upload documents (auto-ingestion enabled)
-aws s3 cp document.pdf s3://your-kb-bucket/documents/
+# Test weather tool directly
+node -e "
+const { weatherTool } = require('./dist/tools/WeatherTool');
+weatherTool.execute({ location: 'San Francisco', units: 'fahrenheit' })
+  .then(result => console.log('Weather:', result.speechText));
+"
 
-# Monitor ingestion status
-aws bedrock-agent list-ingestion-jobs --knowledge-base-id $KB_ID
+# Test agent integration
+node -e "
+const { createWeatherAgent } = require('./dist/agents/WeatherAgent');
+const agent = createWeatherAgent({
+  agentId: process.env.BEDROCK_AGENT_ID,
+  agentAliasId: process.env.BEDROCK_AGENT_ALIAS_ID
+});
+agent.testWeather('New York').then(success => console.log('Test result:', success));
+"
 
-# Test knowledge retrieval
-aws bedrock-agent retrieve --knowledge-base-id $KB_ID --retrieval-query "your question"
+# Monitor tool registry
+node -e "
+const { toolRegistry } = require('./dist/agents/ToolRegistry');
+console.log('Available tools:', toolRegistry.getStats());
+"
+```
+
+### Knowledge Base Operations
+The Knowledge Base is automatically deployed and configured by OpenTofu. All knowledge retrieval is handled automatically by the Bedrock Agent.
+
+```bash
+# Monitor ingestion status (for troubleshooting only)
+aws bedrock-agent list-ingestion-jobs --knowledge-base-id $(tofu output -raw knowledge_base_id)
+
+# View auto-ingestion logs
+aws logs tail /aws/lambda/$(tofu output -raw knowledge_base_name)-auto-ingestion --follow
 ```
 
 ### Agent Configuration
