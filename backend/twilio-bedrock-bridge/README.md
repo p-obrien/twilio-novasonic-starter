@@ -727,27 +727,11 @@ tofu apply # Deploy Aurora Serverless + AI capabilities
 - Encryption at rest and in transit
 - Webhook signature validation
 
-### 3. Configure Knowledge Base (Optional)
-
-Upload documents to enable AI knowledge integration:
-
-```bash
-# Get the S3 bucket name from deployment outputs
-DOCS_BUCKET=$(tofu output -raw knowledge_base_s3_documents_bucket_name)
-
-# Upload documents (triggers automatic ingestion)
-aws s3 cp company-handbook.pdf s3://$DOCS_BUCKET/documents/
-aws s3 sync ./documents/ s3://$DOCS_BUCKET/documents/
-
-# Monitor auto-ingestion progress
-aws logs tail /aws/lambda/$(tofu output -raw knowledge_base_name)-auto-ingestion --follow
-```
-
-### 4. Test the AI-Powered Voice System
+### 3. Test the AI-Powered Voice System
 
 Call your Twilio phone number to experience:
-- 🎙️ **Real-time voice conversations** with Nova Sonic
-- 🧠 **Knowledge-aware responses** from uploaded documents
+- **Real-time voice conversations** with Nova Sonic
+- **Intelligent agent capabilities** with automatic knowledge integration
 - 🤖 **Intelligent agent actions** and custom capabilities
 - 📊 **Production monitoring** and observability
 
@@ -882,16 +866,15 @@ console.log('Available tools:', toolRegistry.getStats());
 "
 ```
 
-### Knowledge Base Management
+### Knowledge Base Operations
+The Knowledge Base is automatically deployed and configured by OpenTofu. All knowledge retrieval is handled automatically by the Bedrock Agent.
+
 ```bash
-# Upload documents (auto-ingestion enabled)
-aws s3 cp document.pdf s3://your-kb-bucket/documents/
+# Monitor ingestion status (for troubleshooting only)
+aws bedrock-agent list-ingestion-jobs --knowledge-base-id $(tofu output -raw knowledge_base_id)
 
-# Monitor ingestion status
-aws bedrock-agent list-ingestion-jobs --knowledge-base-id $KB_ID
-
-# Test knowledge retrieval
-aws bedrock-agent retrieve --knowledge-base-id $KB_ID --retrieval-query "your question"
+# View auto-ingestion logs
+aws logs tail /aws/lambda/$(tofu output -raw knowledge_base_name)-auto-ingestion --follow
 ```
 
 ### Agent Configuration
