@@ -8,6 +8,7 @@
 
 import { configManager } from './ConfigurationManager';
 import { InferenceConfig } from '../types/SharedTypes';
+import { IntegrationConfig } from '../types/IntegrationTypes';
 
 export interface AppConfig {
   server: {
@@ -29,6 +30,7 @@ export interface AppConfig {
     level: string;
   };
   inference: InferenceConfig;
+  integration: IntegrationConfig;
 }
 
 /**
@@ -92,6 +94,7 @@ class LegacyConfigManager {
         level: configManager.logging.level,
       },
       inference: configManager.inference,
+      integration: configManager.integration,
     };
   }
 

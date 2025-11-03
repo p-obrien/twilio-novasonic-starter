@@ -2,15 +2,29 @@
  * Tests for NovaSonicBidirectionalStreamClient
  */
 
-import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../client/';
-import { StreamSession } from '../session/StreamSession';
-import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
-import { Subject } from 'rxjs';
-
-// Mock dependencies
+// Mock dependencies BEFORE importing anything
 jest.mock('@aws-sdk/client-bedrock-runtime');
 jest.mock('@smithy/node-http-handler');
-jest.mock('../utils/logger');
+
+const mockLogger = {
+  info: jest.fn(),
+  debug: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  trace: jest.fn(),
+};
+
+jest.mock('../observability/logger', () => ({
+  __esModule: true,
+  default: mockLogger,
+  logger: mockLogger,
+}));
+
+jest.mock('../utils/logger', () => ({
+  __esModule: true,
+  default: mockLogger,
+  logger: mockLogger,
+}));
 jest.mock('../observability/bedrockObservability', () => ({
   bedrockObservability: {
     startSession: jest.fn(),
@@ -20,12 +34,28 @@ jest.mock('../observability/bedrockObservability', () => ({
 }));
 jest.mock('../utils/correlationId', () => ({
   CorrelationIdManager: {
+    getCurrentCorrelationId: jest.fn(() => 'test-correlation-id'),
     traceWithCorrelation: jest.fn((name, fn) => fn()),
     createBedrockContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' }),
     setContext: jest.fn(),
     getCurrentContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' })
   }
 }));
+jest.mock('../agents/ToolRegistry', () => ({
+  ToolRegistry: {
+    getInstance: jest.fn().mockReturnValue({
+      registerTool: jest.fn(),
+      getTool: jest.fn(),
+      getAllTools: jest.fn().mockReturnValue([]),
+      removeTool: jest.fn()
+    })
+  }
+}));
+
+import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../client/';
+import { StreamSession } from '../session/StreamSession';
+import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+import { Subject } from 'rxjs';
 
 const MockBedrockRuntimeClient = BedrockRuntimeClient as jest.MockedClass<typeof BedrockRuntimeClient>;
 
@@ -109,7 +139,7 @@ describe('NovaSonicBidirectionalStreamClient', () => {
 
         expect(() => {
           client.createStreamSession('duplicate-session');
-        }).toThrow('Stream session with ID duplicate-session already exists');
+        }).toThrow('Session duplicate-session already exists');
       });
     });
 

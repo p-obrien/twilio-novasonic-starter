@@ -29,23 +29,24 @@ describe('WebhookHandler', () => {
   let mockSend: jest.Mock;
   let mockStatus: jest.Mock;
   let mockSet: jest.Mock;
+  let webhookHandler: WebhookHandler;
 
   const originalEnv = process.env;
 
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
-    
+
     // Reset environment
     process.env = { ...originalEnv };
     delete process.env.NODE_ENV;
     delete process.env.JEST_WORKER_ID;
-    
+
     // Create mock response
     mockSend = jest.fn().mockReturnThis();
     mockStatus = jest.fn().mockReturnThis();
     mockSet = jest.fn().mockReturnThis();
-    
+
     mockResponse = {
       status: mockStatus,
       send: mockSend,
@@ -92,6 +93,14 @@ describe('WebhookHandler', () => {
 
     // Mock Twilio signature validation
     mockTwilio.validateRequest.mockReturnValue(true);
+
+    // Create WebhookHandler instance with mocked dependencies
+    webhookHandler = new WebhookHandler({
+      twilioValidator: mockTwilio,
+      webSocketSecurity: mockWebSocketSecurity,
+      logger: mockLogger,
+      correlationManager: mockCorrelationIdManager
+    });
   });
 
   afterEach(() => {
@@ -102,7 +111,7 @@ describe('WebhookHandler', () => {
     it('should reject requests when TWILIO_AUTH_TOKEN is missing', () => {
       delete process.env.TWILIO_AUTH_TOKEN;
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockStatus).toHaveBeenCalledWith(403);
       expect(mockSend).toHaveBeenCalledWith('Twilio signature validation not configured');
@@ -115,7 +124,7 @@ describe('WebhookHandler', () => {
     it('should reject requests when TWILIO_AUTH_TOKEN is empty string', () => {
       process.env.TWILIO_AUTH_TOKEN = '';
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockStatus).toHaveBeenCalledWith(403);
       expect(mockSend).toHaveBeenCalledWith('Twilio signature validation not configured');
@@ -124,7 +133,7 @@ describe('WebhookHandler', () => {
     it('should reject requests when TWILIO_AUTH_TOKEN is only whitespace', () => {
       process.env.TWILIO_AUTH_TOKEN = '   ';
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockStatus).toHaveBeenCalledWith(403);
       expect(mockSend).toHaveBeenCalledWith('Twilio signature validation not configured');
@@ -133,7 +142,7 @@ describe('WebhookHandler', () => {
     it('should handle quoted auth tokens correctly', () => {
       process.env.TWILIO_AUTH_TOKEN = '"test-auth-token"';
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
         'test-auth-token',
@@ -146,7 +155,7 @@ describe('WebhookHandler', () => {
     it('should handle unquoted auth tokens correctly', () => {
       process.env.TWILIO_AUTH_TOKEN = 'test-auth-token';
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
         'test-auth-token',
@@ -165,7 +174,7 @@ describe('WebhookHandler', () => {
     it('should validate Twilio signature successfully', () => {
       mockTwilio.validateRequest.mockReturnValue(true);
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
         'test-auth-token',
@@ -179,7 +188,7 @@ describe('WebhookHandler', () => {
     it('should reject requests with invalid signature', () => {
       mockTwilio.validateRequest.mockReturnValue(false);
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockStatus).toHaveBeenCalledWith(403);
       expect(mockSend).toHaveBeenCalledWith('Invalid Twilio signature');
@@ -194,7 +203,7 @@ describe('WebhookHandler', () => {
         throw new Error('Signature validation failed');
       });
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockStatus).toHaveBeenCalledWith(500);
       expect(mockSend).toHaveBeenCalledWith('Signature validation error');
@@ -204,37 +213,33 @@ describe('WebhookHandler', () => {
       );
     });
 
-    it('should skip signature validation in test environment', () => {
+    it('should always validate signature using injected validator', () => {
+      // With dependency injection, signature validation always runs
+      // Tests control behavior by mocking the validator
       process.env.NODE_ENV = 'test';
-      mockTwilio.validateRequest.mockReturnValue(false); // Would normally fail
+      mockTwilio.validateRequest.mockReturnValue(true);
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
-      expect(mockTwilio.validateRequest).not.toHaveBeenCalled();
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'webhook.signature_validation_skipped',
-        { reason: 'test_environment', signature: 'present' }
-      );
+      expect(mockTwilio.validateRequest).toHaveBeenCalled();
       expect(mockStatus).not.toHaveBeenCalledWith(403);
     });
 
-    it('should skip signature validation when JEST_WORKER_ID is set', () => {
+    it('should use injected validator regardless of environment', () => {
+      // Dependency injection allows full control over validator in tests
       process.env.JEST_WORKER_ID = '1';
-      mockTwilio.validateRequest.mockReturnValue(false); // Would normally fail
+      mockTwilio.validateRequest.mockReturnValue(true);
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
-      expect(mockTwilio.validateRequest).not.toHaveBeenCalled();
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'webhook.signature_validation_skipped',
-        { reason: 'test_environment', signature: 'present' }
-      );
+      expect(mockTwilio.validateRequest).toHaveBeenCalled();
+      expect(mockStatus).not.toHaveBeenCalledWith(403);
     });
 
     it('should handle missing signature header', () => {
       mockRequest.headers!['x-twilio-signature'] = undefined;
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
         'test-auth-token',
@@ -255,7 +260,7 @@ describe('WebhookHandler', () => {
       mockRequest.headers!['content-type'] = 'application/x-www-form-urlencoded';
       mockRequest.rawBody = Buffer.from('CallSid=CA123&From=%2B1234567890');
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
         expect.any(String),
@@ -269,7 +274,7 @@ describe('WebhookHandler', () => {
       mockRequest.headers!['content-type'] = 'application/json';
       mockRequest.rawBody = Buffer.from('{"test": "data"}');
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
         expect.any(String),
@@ -283,7 +288,7 @@ describe('WebhookHandler', () => {
       mockRequest.rawBody = undefined;
       mockRequest.body = { CallSid: 'CA123', From: '+1234567890' };
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
         expect.any(String),
@@ -297,7 +302,7 @@ describe('WebhookHandler', () => {
       mockRequest.headers!['content-type'] = 'application/x-www-form-urlencoded; charset=utf-8';
       mockRequest.rawBody = Buffer.from('CallSid=CA123');
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       // Should still parse as form data
       expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
@@ -324,7 +329,7 @@ describe('WebhookHandler', () => {
       };
       mockValidationUtils.validateTwilioWebhookPayload.mockReturnValue(validPayload);
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockValidationUtils.validateTwilioWebhookPayload).toHaveBeenCalledWith(
         expect.any(Object),
@@ -345,7 +350,7 @@ describe('WebhookHandler', () => {
       });
       mockRequest.body = { CallSid: 'CA1234567890abcdef1234567890abcdef' };
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'webhook.validation_failed',
@@ -379,7 +384,7 @@ describe('WebhookHandler', () => {
         rawBody: Buffer.from('From=%2B1234567890') // No CallSid in raw body either
       };
 
-      WebhookHandler.handle(requestWithoutCallSid as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(requestWithoutCallSid as WebhookRequest, mockResponse as express.Response);
 
       expect(mockWebSocketSecurity.addActiveSession).not.toHaveBeenCalled();
       expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -410,7 +415,7 @@ describe('WebhookHandler', () => {
         rawBody: Buffer.from('{"From": "+1234567890"}') // JSON without CallSid
       };
 
-      WebhookHandler.handle(requestWithInvalidBody as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(requestWithInvalidBody as WebhookRequest, mockResponse as express.Response);
 
       expect(mockWebSocketSecurity.addActiveSession).not.toHaveBeenCalled();
       expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -430,7 +435,7 @@ describe('WebhookHandler', () => {
       it('should use wsUrl query parameter when provided', () => {
         mockRequest.query = { wsUrl: 'wss://custom.example.com/stream' };
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('wss://custom.example.com/stream');
@@ -439,7 +444,7 @@ describe('WebhookHandler', () => {
       it('should append /media to wsUrl if not present', () => {
         mockRequest.query = { wsUrl: 'wss://custom.example.com' };
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('wss://custom.example.com/media');
@@ -448,7 +453,7 @@ describe('WebhookHandler', () => {
       it('should handle wsUrl with trailing slash', () => {
         mockRequest.query = { wsUrl: 'wss://custom.example.com/' };
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('wss://custom.example.com/media');
@@ -457,7 +462,7 @@ describe('WebhookHandler', () => {
       it('should handle array wsUrl parameter', () => {
         mockRequest.query = { wsUrl: ['wss://first.com', 'wss://second.com'] };
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('wss://first.com/media');
@@ -467,7 +472,7 @@ describe('WebhookHandler', () => {
         process.env.PUBLIC_WS_HOST = 'production.example.com';
         mockRequest.query = {};
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('wss://production.example.com/media');
@@ -478,7 +483,7 @@ describe('WebhookHandler', () => {
         process.env.FORCE_WS_PROTO = 'ws';
         mockRequest.query = {};
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('ws://production.example.com/media');
@@ -492,7 +497,7 @@ describe('WebhookHandler', () => {
           query: {}
         } as any;
 
-        WebhookHandler.handle(mockReq, mockResponse as express.Response);
+        webhookHandler.handle(mockReq, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('wss://example.com:443/media');
@@ -506,7 +511,7 @@ describe('WebhookHandler', () => {
         };
         mockRequest.query = {};
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('wss://proxy.example.com/media');
@@ -520,7 +525,7 @@ describe('WebhookHandler', () => {
           query: {}
         } as any;
 
-        WebhookHandler.handle(mockReq, mockResponse as express.Response);
+        webhookHandler.handle(mockReq, mockResponse as express.Response);
 
         const twimlResponse = mockSend.mock.calls[0][0];
         expect(twimlResponse).toContain('ws://localhost:3000/media');
@@ -542,7 +547,7 @@ describe('WebhookHandler', () => {
         };
         mockRequest.originalUrl = '/webhook?param=value';
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
           expect.any(String),
@@ -559,7 +564,7 @@ describe('WebhookHandler', () => {
         };
         mockRequest.get = jest.fn().mockReturnValue('example.com');
 
-        WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+        webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
         expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
           expect.any(String),
@@ -576,7 +581,7 @@ describe('WebhookHandler', () => {
           get: jest.fn().mockReturnValue('localhost:3000')
         } as any;
 
-        WebhookHandler.handle(mockReq, mockResponse as express.Response);
+        webhookHandler.handle(mockReq, mockResponse as express.Response);
 
         expect(mockTwilio.validateRequest).toHaveBeenCalledWith(
           expect.any(String),
@@ -595,7 +600,7 @@ describe('WebhookHandler', () => {
     });
 
     it('should generate valid TwiML response', () => {
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockSet).toHaveBeenCalledWith('Content-Type', 'application/xml');
       
@@ -612,7 +617,7 @@ describe('WebhookHandler', () => {
     });
 
     it('should include required stream parameters', () => {
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       const twimlResponse = mockSend.mock.calls[0][0];
       expect(twimlResponse).toContain('name="audioFormat" value="mulaw"');
@@ -627,7 +632,7 @@ describe('WebhookHandler', () => {
       const mockNow = jest.spyOn(Date, 'now').mockReturnValue(1234567890);
       const mockRandom = jest.spyOn(Math, 'random').mockReturnValue(0.123456789);
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       const twimlResponse = mockSend.mock.calls[0][0];
       expect(twimlResponse).toContain('name="sessionId" value="session_1234567890_');
@@ -637,7 +642,7 @@ describe('WebhookHandler', () => {
     });
 
     it('should log TwiML response details', () => {
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockLogger.info).toHaveBeenCalledWith(
         'webhook.twiML.sent',
@@ -656,7 +661,7 @@ describe('WebhookHandler', () => {
     });
 
     it('should log request received with correlation context', () => {
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockLogger.info).toHaveBeenCalledWith(
         'webhook.request.received',
@@ -670,7 +675,7 @@ describe('WebhookHandler', () => {
     });
 
     it('should use correlation tracing', () => {
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockCorrelationIdManager.traceWithCorrelation).toHaveBeenCalledWith(
         'webhook.handle',
@@ -682,7 +687,7 @@ describe('WebhookHandler', () => {
     it('should handle missing correlation context gracefully', () => {
       mockCorrelationIdManager.getCurrentContext.mockReturnValue(undefined);
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockLogger.info).toHaveBeenCalledWith(
         'webhook.request.received',
@@ -702,7 +707,7 @@ describe('WebhookHandler', () => {
     it('should not proceed after authentication failure', () => {
       delete process.env.TWILIO_AUTH_TOKEN;
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockStatus).toHaveBeenCalledWith(403);
       expect(mockWebSocketSecurity.addActiveSession).not.toHaveBeenCalled();
@@ -712,7 +717,7 @@ describe('WebhookHandler', () => {
     it('should not proceed after signature validation failure', () => {
       mockTwilio.validateRequest.mockReturnValue(false);
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockStatus).toHaveBeenCalledWith(403);
       expect(mockWebSocketSecurity.addActiveSession).not.toHaveBeenCalled();
@@ -724,7 +729,7 @@ describe('WebhookHandler', () => {
         throw new Error('Validation error');
       });
 
-      WebhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
+      webhookHandler.handle(mockRequest as WebhookRequest, mockResponse as express.Response);
 
       expect(mockStatus).toHaveBeenCalledWith(500);
       expect(mockWebSocketSecurity.addActiveSession).not.toHaveBeenCalled();

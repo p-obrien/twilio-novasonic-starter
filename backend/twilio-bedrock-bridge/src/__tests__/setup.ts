@@ -9,11 +9,32 @@
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'ERROR';
 process.env.AWS_REGION = 'us-east-1';
-process.env.TWILIO_AUTH_TOKEN = 'test-auth-token-123456789abcdef';
+process.env.TWILIO_AUTH_TOKEN = 'test-auth-token-32chars-min-required-here';
 process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-opentofu-kb-setup-123';
 process.env.TWILIO_ACCOUNT_SID = 'AC' + '0'.repeat(32);
 process.env.CLOUDWATCH_ENABLED = 'false'; // Disable CloudWatch in tests by default
 process.env.ENABLE_XRAY = 'false'; // Disable X-Ray in tests
+
+// Mock CorrelationIdManager to prevent initialization issues
+jest.mock('../utils/correlationId', () => ({
+  CorrelationIdManager: {
+    getCurrentCorrelationId: jest.fn(() => 'test-correlation-id'),
+    getCurrentContext: jest.fn(() => ({ correlationId: 'test-correlation-id' })),
+    traceWithCorrelation: jest.fn(async (name, fn, attributes) => {
+      // Execute the function and return its result, preserving async behavior
+      try {
+        const result = await fn();
+        return result;
+      } catch (error) {
+        throw error;
+      }
+    }),
+    setContext: jest.fn(),
+    runWithContext: jest.fn((context, fn) => fn()),
+    createContext: jest.fn(() => ({ correlationId: 'test-correlation-id' })),
+    middleware: jest.fn(() => (req, res, next) => next())
+  }
+}));
 
 // Mock OpenTelemetry API to prevent initialization issues
 jest.mock('@opentelemetry/api', () => ({

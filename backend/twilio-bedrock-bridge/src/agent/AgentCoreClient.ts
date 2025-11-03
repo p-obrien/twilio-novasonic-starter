@@ -153,22 +153,24 @@ export class AgentCoreClient implements IAgentCoreClient {
     input: string,
     sessionId: string
   ): Promise<AgentResponse> {
+    // Validate inputs before entering tracing context - these should throw immediately
+    if (!agentId?.trim()) {
+      throw new AgentCoreError('Agent ID cannot be empty', agentId, sessionId);
+    }
+
+    if (!agentAliasId?.trim()) {
+      throw new AgentCoreError('Agent alias ID cannot be empty', agentId, sessionId);
+    }
+
+    if (!input?.trim()) {
+      throw new AgentCoreError('Input cannot be empty', agentId, sessionId);
+    }
+
+    if (!sessionId?.trim()) {
+      throw new AgentCoreError('Session ID cannot be empty', agentId, sessionId);
+    }
+
     return CorrelationIdManager.traceWithCorrelation('agent_core.invoke', async () => {
-      if (!agentId?.trim()) {
-        throw new AgentCoreError('Agent ID cannot be empty', agentId, sessionId);
-      }
-
-      if (!agentAliasId?.trim()) {
-        throw new AgentCoreError('Agent alias ID cannot be empty', agentId, sessionId);
-      }
-
-      if (!input?.trim()) {
-        throw new AgentCoreError('Input cannot be empty', agentId, sessionId);
-      }
-
-      if (!sessionId?.trim()) {
-        throw new AgentCoreError('Session ID cannot be empty', agentId, sessionId);
-      }
 
       const startTime = Date.now();
       

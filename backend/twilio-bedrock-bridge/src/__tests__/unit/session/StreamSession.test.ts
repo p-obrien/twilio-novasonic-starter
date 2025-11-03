@@ -270,8 +270,8 @@ describe('StreamSession', () => {
       const audioData = Buffer.from('test audio data');
       mockClient.streamAudioChunk.mockRejectedValue(new Error('Streaming failed'));
       
-      // Should not throw - errors are handled gracefully
-      await expect(streamSession.streamAudio(audioData)).resolves.toBeUndefined();
+      // Should throw AudioProcessingError when underlying streaming fails
+      await expect(streamSession.streamAudio(audioData)).rejects.toThrow('Failed to stream audio immediately');
     });
 
     it('should manage audio queue size', async () => {
