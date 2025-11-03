@@ -685,7 +685,10 @@ export class NovaSonicBidirectionalStreamClient {
       isPromptStartSent: false,
       isAudioContentStartSent: false,
       audioContentId: randomUUID(),
-      isWaitingForResponse: false
+      isWaitingForResponse: false,
+      realtimeMode: true, // Real-time mode enabled by default for bidirectional streaming
+      userSpeaking: false,
+      modelSpeaking: false
     };
   }
 

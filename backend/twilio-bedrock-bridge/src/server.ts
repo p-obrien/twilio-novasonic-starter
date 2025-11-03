@@ -50,6 +50,9 @@ app.use('/webhook', express.urlencoded({ extended: true, verify: saveRawBody }))
 // WebSocket server for Twilio Media Streams (Twilio connects to /media)
 initWebsocketServer(server);
 
+// Create WebhookHandler instance with default dependencies
+const webhookHandler = new WebhookHandler();
+
 // Webhook and health endpoints
 app.post('/webhook', (req: any, res: any) => {
   const tracer = safeTrace.getTracer('twilio-bedrock-bridge');
@@ -72,7 +75,7 @@ app.post('/webhook', (req: any, res: any) => {
       callSid: req.body?.CallSid,
       accountSid: req.body?.AccountSid
     });
-    WebhookHandler.handle(req as WebhookRequest, res);
+    webhookHandler.handle(req as WebhookRequest, res);
     span.setStatus({ code: 1 }); // OK
   } catch (error) {
     span.setStatus({ code: 2, message: (error as Error).message }); // ERROR

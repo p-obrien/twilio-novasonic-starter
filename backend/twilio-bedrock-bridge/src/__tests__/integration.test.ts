@@ -36,10 +36,21 @@ jest.mock('../observability/smartSampling', () => ({
       highVolumeThreshold: 100
     }),
     shouldSample: jest.fn().mockReturnValue({
-      isSampled: true,
-      traceId: 'test-trace-id',
-      spanId: 'test-span-id'
+      shouldSample: true,
+      reason: 'test',
+      sampleRate: 0.1
+    }),
+    startSpanWithSampling: jest.fn().mockReturnValue({
+      end: jest.fn(),
+      setAttributes: jest.fn(),
+      setStatus: jest.fn(),
+      recordException: jest.fn(),
+      addEvent: jest.fn()
     })
+  },
+  TracingUtils: {
+    extractTraceContext: jest.fn().mockReturnValue({}),
+    injectTraceContext: jest.fn()
   }
 }));
 jest.mock('../security/WebSocketSecurity', () => ({
@@ -83,12 +94,56 @@ describe('Integration Tests', () => {
   let app: express.Application;
   let server: http.Server;
   let port: number;
+  let mockWebSocketSecurity: any;
+  let mockTwilioValidator: any;
+  let webhookHandler: WebhookHandler;
+  let mockSmartSampler: any;
+  let mockTracingUtils: any;
 
   beforeAll((done) => {
     // Set up test environment
-    process.env.TWILIO_AUTH_TOKEN = 'test-auth-token';
+    process.env.TWILIO_AUTH_TOKEN = 'test-auth-token-32chars-min-required-here';
     process.env.AWS_REGION = 'us-east-1';
     process.env.LOG_LEVEL = 'ERROR'; // Reduce log noise in tests
+
+    // Get the mocked webSocketSecurity
+    const { webSocketSecurity } = require('../security/WebSocketSecurity');
+    mockWebSocketSecurity = webSocketSecurity;
+
+    // Get the mocked Twilio validator
+    const twilio = require('twilio');
+    mockTwilioValidator = twilio;
+
+    // Create mock smartSampler directly to ensure proper mock behavior
+    mockSmartSampler = {
+      getSamplingConfig: () => ({
+        defaultSampleRate: 0.1,
+        highVolumeThreshold: 100
+      }),
+      shouldSample: () => ({
+        shouldSample: true,
+        reason: 'test',
+        sampleRate: 0.1
+      }),
+      startSpanWithSampling: () => ({
+        end: jest.fn(),
+        setAttributes: jest.fn(),
+        setStatus: jest.fn(),
+        recordException: jest.fn(),
+        addEvent: jest.fn()
+      })
+    };
+
+    mockTracingUtils = {
+      extractTraceContext: () => ({}),
+      injectTraceContext: () => {}
+    };
+
+    // Create WebhookHandler instance with mocked dependencies
+    webhookHandler = new WebhookHandler({
+      twilioValidator: mockTwilioValidator,
+      webSocketSecurity: mockWebSocketSecurity
+    });
 
     // Create Express app similar to main server
     app = express();
@@ -104,7 +159,7 @@ describe('Integration Tests', () => {
 
     // Routes
     app.post('/webhook', (req: any, res: any) => {
-      WebhookHandler.handle(req, res);
+      webhookHandler.handle(req, res);
     });
 
     // Kubernetes health check endpoints
@@ -112,8 +167,12 @@ describe('Integration Tests', () => {
     app.get('/health/liveness', HealthHandler.getLiveness);
     app.get('/health', HealthHandler.getReadiness); // General health endpoint
 
-    // WebSocket server
-    initWebsocketServer(server);
+    // WebSocket server with injected dependencies for testing
+    initWebsocketServer(server, {
+      security: mockWebSocketSecurity,
+      smartSampler: mockSmartSampler,
+      tracingUtils: mockTracingUtils
+    });
 
     // Start server on random port
     server.listen(0, () => {
@@ -122,13 +181,42 @@ describe('Integration Tests', () => {
     });
   });
 
+  beforeEach(() => {
+    // Reset mocks to default valid state before each test
+    if (mockWebSocketSecurity) {
+      mockWebSocketSecurity.validateConnection.mockReturnValue({
+        isValid: true,
+        callSid: 'CA' + '0'.repeat(32),
+        accountSid: 'AC' + '0'.repeat(32)
+      });
+      mockWebSocketSecurity.validateWebSocketMessage.mockReturnValue({
+        isValid: true,
+        callSid: 'CA' + '0'.repeat(32)
+      });
+    }
+    if (mockTwilioValidator) {
+      mockTwilioValidator.validateRequest.mockReturnValue(true);
+    }
+  });
+
   afterAll((done) => {
     // Close server and clean up resources
-    server.close(() => {
-      // Give a small delay to ensure all connections are closed
-      setTimeout(done, 100);
-    });
-  });
+    if (server) {
+      server.close((err) => {
+        if (err) {
+          console.error('Error closing server:', err);
+        }
+        // Give a small delay to ensure all connections are closed
+        setTimeout(() => done(), 100);
+      });
+      // Add a safety timeout in case server.close() doesn't call the callback
+      setTimeout(() => {
+        done();
+      }, 1000);
+    } else {
+      done();
+    }
+  }, 10000); // Increase timeout for afterAll hook
 
   describe('Webhook Endpoint', () => {
     it('should handle valid Twilio webhook request', async () => {
@@ -229,6 +317,8 @@ describe('Integration Tests', () => {
   });
 
   describe('WebSocket Integration', () => {
+    // FIXED: WebsocketHandler now supports dependency injection via the dependencies parameter.
+    // The mock webSocketSecurity is injected in beforeAll via initWebsocketServer(server, { security: mockWebSocketSecurity })
     it('should establish WebSocket connection on /media path', (done) => {
       const WebSocket = require('ws');
       const ws = new WebSocket(`ws://localhost:${port}/media`, {
@@ -256,6 +346,8 @@ describe('Integration Tests', () => {
     });
 
     it('should handle WebSocket message flow', (done) => {
+      // FIXED: WebsocketHandler now accepts smartSampler via dependency injection.
+      // The mock smartSampler is injected in beforeAll via initWebsocketServer.
       const WebSocket = require('ws');
       const ws = new WebSocket(`ws://localhost:${port}/media`, {
         headers: {
@@ -325,8 +417,9 @@ describe('Integration Tests', () => {
     });
 
     it('should handle missing required headers', async () => {
-      const mockTwilio = require('twilio');
-      mockTwilio.validateRequest.mockReturnValue(false);
+      // FIXED: WebhookHandler now accepts validator via dependency injection.
+      // We can control validator behavior by mocking it per test.
+      mockTwilioValidator.validateRequest.mockReturnValueOnce(false);
 
       const webhookData = {
         CallSid: 'CA' + '0'.repeat(32)
@@ -337,7 +430,8 @@ describe('Integration Tests', () => {
         .send(webhookData)
         .expect(403); // Should fail signature validation
 
-      mockTwilio.validateRequest.mockReturnValue(true);
+      // Reset mock to default valid state
+      mockTwilioValidator.validateRequest.mockReturnValue(true);
     });
 
     it('should handle non-existent endpoints', async () => {
@@ -422,8 +516,9 @@ describe('Integration Tests', () => {
 
   describe('Security', () => {
     it('should validate Twilio signatures', async () => {
-      const mockTwilio = require('twilio');
-      mockTwilio.validateRequest.mockReturnValue(false);
+      // FIXED: WebhookHandler now accepts validator via dependency injection.
+      // We can control validator behavior by mocking it per test.
+      mockTwilioValidator.validateRequest.mockReturnValueOnce(false);
 
       const webhookData = {
         CallSid: 'CA' + '0'.repeat(32),
@@ -436,12 +531,13 @@ describe('Integration Tests', () => {
         .set('X-Twilio-Signature', 'invalid-signature')
         .expect(403);
 
-      mockTwilio.validateRequest.mockReturnValue(true);
+      // Reset mock to default valid state
+      mockTwilioValidator.validateRequest.mockReturnValue(true);
     });
 
     it('should reject WebSocket connections with invalid User-Agent', (done) => {
-      const { webSocketSecurity } = require('../security/WebSocketSecurity');
-      webSocketSecurity.validateConnection.mockReturnValue({
+      // Use the mock security instance to control validation behavior
+      mockWebSocketSecurity.validateConnection.mockReturnValueOnce({
         isValid: false,
         reason: 'Invalid User-Agent header'
       });
@@ -456,7 +552,7 @@ describe('Integration Tests', () => {
       // Set a timeout to prevent hanging
       const timeout = setTimeout(() => {
         ws.close();
-        webSocketSecurity.validateConnection.mockReturnValue({
+        mockWebSocketSecurity.validateConnection.mockReturnValue({
           isValid: true,
           callSid: 'CA' + '0'.repeat(32),
           accountSid: 'AC' + '0'.repeat(32)
@@ -466,7 +562,7 @@ describe('Integration Tests', () => {
 
       ws.on('open', () => {
         clearTimeout(timeout);
-        webSocketSecurity.validateConnection.mockReturnValue({
+        mockWebSocketSecurity.validateConnection.mockReturnValue({
           isValid: true,
           callSid: 'CA' + '0'.repeat(32),
           accountSid: 'AC' + '0'.repeat(32)
@@ -478,7 +574,7 @@ describe('Integration Tests', () => {
         clearTimeout(timeout);
         // Connection should be rejected
         expect(error.message).toContain('Unexpected server response');
-        webSocketSecurity.validateConnection.mockReturnValue({
+        mockWebSocketSecurity.validateConnection.mockReturnValue({
           isValid: true,
           callSid: 'CA' + '0'.repeat(32),
           accountSid: 'AC' + '0'.repeat(32)

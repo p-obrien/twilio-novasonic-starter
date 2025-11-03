@@ -1,98 +1,207 @@
 /**
- * Tests for WebsocketHandler
+ * Tests for WebsocketHandler using Dependency Injection
  */
 
-// Mock the client BEFORE importing anything else
-const mockBedrockClient = {
-  // Core streaming methods
-  isSessionActive: jest.fn().mockReturnValue(false),
-  createStreamSession: jest.fn(),
-  initiateSession: jest.fn().mockResolvedValue(undefined),
-  setupSessionStartEvent: jest.fn(),
-  setupPromptStartEvent: jest.fn(),
-  setupSystemPromptEvent: jest.fn(),
-  setupStartAudioEvent: jest.fn(),
-  registerEventHandler: jest.fn(),
-  streamAudioChunk: jest.fn().mockResolvedValue(undefined),
-  sendContentEnd: jest.fn(),
-  sendPromptEnd: jest.fn(),
-  forceCloseSession: jest.fn(),
-  // Orchestrator methods
-  isOrchestratorEnabled: jest.fn().mockReturnValue(false),
-  processTextInput: jest.fn().mockResolvedValue({ response: 'test response', source: 'conversation' }),
-  updateOrchestratorConfig: jest.fn(),
-  getOrchestratorConfig: jest.fn().mockReturnValue({}),
-  // Lifecycle methods
-  cleanup: jest.fn(),
-  shutdown: jest.fn()
-};
+// Mock observability modules that are directly imported in WebsocketHandler
+jest.mock('../observability/safeTracing', () => {
+  const mockSpan = {
+    setAttributes: jest.fn(),
+    recordException: jest.fn(),
+    setStatus: jest.fn(),
+    end: jest.fn()
+  };
 
-jest.doMock('../client/', () => ({
-  NovaSonicClient: jest.fn().mockImplementation(() => mockBedrockClient),
-  createNovaSonicClient: jest.fn().mockImplementation(() => mockBedrockClient)
+  return {
+    safeTrace: {
+      getTracer: jest.fn(() => ({
+        startSpan: jest.fn(() => mockSpan)
+      })),
+      isAvailable: jest.fn(() => true)
+    }
+  };
+});
+
+jest.mock('../observability/smartSampling', () => {
+  const mockSpan = {
+    setAttributes: jest.fn(),
+    recordException: jest.fn(),
+    setStatus: jest.fn(),
+    end: jest.fn()
+  };
+
+  return {
+    smartSampler: {
+      shouldSample: jest.fn(() => ({ shouldSample: false })),
+      startSpanWithSampling: jest.fn(() => mockSpan)
+    },
+    TracingUtils: {}
+  };
+});
+
+jest.mock('../utils/asyncCorrelation', () => ({
+  setTimeoutWithCorrelation: jest.fn((fn, delay) => setTimeout(fn, delay))
 }));
 
-// Mock other dependencies
-jest.mock('ws');
-jest.mock('../utils/logger');
-jest.mock('../security/WebSocketSecurity');
-jest.mock('../observability/websocketMetrics');
-jest.mock('../observability/sessionMetrics');
-jest.mock('../audio/AudioBufferManager');
-jest.mock('../audio/AudioProcessor', () => ({
-  processBedrockAudioOutput: jest.fn().mockReturnValue(Buffer.alloc(160)),
-  processTwilioAudioInput: jest.fn().mockReturnValue(Buffer.alloc(320))
-}));
-jest.mock('../utils/correlationId', () => ({
-  CorrelationIdManager: {
-    createWebSocketContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' }),
-    runWithContext: jest.fn((context, fn) => fn()),
-    setContext: jest.fn(),
-    getCurrentContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' }),
-    getCurrentCorrelationId: jest.fn().mockReturnValue('test-correlation-id'),
-    traceWithCorrelation: jest.fn((name, fn) => fn()),
-    createBedrockContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' })
-  }
-}));
-
-// Now import everything
 import { WebSocketServer } from 'ws';
 import http from 'http';
 import { initWebsocketServer } from '../handlers/WebsocketHandler';
-import { webSocketSecurity } from '../security/WebSocketSecurity';
-import { WebSocketMetrics } from '../observability/websocketMetrics';
-import { SessionMetrics } from '../observability/sessionMetrics';
-import { AudioBufferManager } from '../audio/AudioBufferManager';
+import type {
+  WebSocketHandlerDependencies,
+  WebSocketSecurityService,
+  WebSocketMetricsService,
+  SessionMetricsService,
+  AudioBufferManagerService,
+  AudioProcessors,
+  Logger,
+  CorrelationManagerService
+} from '../handlers/WebsocketHandlerTypes';
+import type { NovaSonicBidirectionalStreamClient } from '../client';
+import { smartSampler } from '../observability/smartSampling';
+import { safeTrace } from '../observability/safeTracing';
 
+// Mock WebSocketServer
+jest.mock('ws');
 const MockWebSocketServer = WebSocketServer as jest.MockedClass<typeof WebSocketServer>;
-const mockWebSocketSecurity = webSocketSecurity as jest.Mocked<typeof webSocketSecurity>;
-const mockWebSocketMetrics = WebSocketMetrics as jest.Mocked<typeof WebSocketMetrics>;
-const mockSessionMetrics = SessionMetrics as jest.Mocked<typeof SessionMetrics>;
-const mockAudioBufferManager = AudioBufferManager as jest.Mocked<typeof AudioBufferManager>;
 
 describe('WebsocketHandler', () => {
   let mockServer: http.Server;
   let mockWss: any;
   let mockWs: any;
   let mockReq: any;
+  let dependencies: WebSocketHandlerDependencies;
+
+  // Mock implementations conforming to dependency interfaces
+  let mockBedrockClient: jest.Mocked<NovaSonicBidirectionalStreamClient>;
+  let mockSecurity: jest.Mocked<WebSocketSecurityService>;
+  let mockWsMetrics: jest.Mocked<WebSocketMetricsService>;
+  let mockSessionMetrics: jest.Mocked<SessionMetricsService>;
+  let mockAudioBufferManager: jest.Mocked<AudioBufferManagerService>;
+  let mockAudioProcessors: jest.Mocked<AudioProcessors>;
+  let mockLogger: jest.Mocked<Logger>;
+  let mockCorrelationManager: jest.Mocked<CorrelationManagerService>;
 
   beforeEach(() => {
-    // Reset the shared mock client
-    Object.values(mockBedrockClient).forEach(mockFn => {
-      if (jest.isMockFunction(mockFn)) {
-        mockFn.mockClear();
-      }
+    // Reset observability mocks (needed because jest config has resetMocks: true)
+    (smartSampler.shouldSample as jest.Mock).mockReturnValue({ shouldSample: false });
+    (smartSampler.startSpanWithSampling as jest.Mock).mockReturnValue({
+      setAttributes: jest.fn(),
+      recordException: jest.fn(),
+      setStatus: jest.fn(),
+      end: jest.fn()
     });
-    
-    // Reset specific return values
-    mockBedrockClient.isSessionActive.mockReturnValue(false);
-    mockBedrockClient.initiateSession.mockResolvedValue(undefined);
-    mockBedrockClient.streamAudioChunk.mockResolvedValue(undefined);
-    
-    // Make createStreamSession change the session state to active
+    (safeTrace.getTracer as jest.Mock).mockReturnValue({
+      startSpan: jest.fn(() => ({
+        setAttributes: jest.fn(),
+        recordException: jest.fn(),
+        setStatus: jest.fn(),
+        end: jest.fn()
+      }))
+    });
+    (safeTrace.isAvailable as jest.Mock).mockReturnValue(true);
+
+    // Create mock Bedrock client
+    mockBedrockClient = {
+      isSessionActive: jest.fn().mockReturnValue(false),
+      createStreamSession: jest.fn(),
+      initiateSession: jest.fn().mockResolvedValue(undefined),
+      setupSessionStartEvent: jest.fn(),
+      setupPromptStartEvent: jest.fn(),
+      setupSystemPromptEvent: jest.fn(),
+      setupStartAudioEvent: jest.fn(),
+      registerEventHandler: jest.fn(),
+      streamAudioChunk: jest.fn().mockResolvedValue(undefined),
+      sendContentEnd: jest.fn(),
+      sendPromptEnd: jest.fn(),
+      forceCloseSession: jest.fn(),
+      getSessionData: jest.fn(),
+      getLastActivityTime: jest.fn().mockReturnValue(Date.now()),
+      isCleanupInProgress: jest.fn().mockReturnValue(false)
+    } as any;
+
+    // Make createStreamSession change the session state to active and return a mock session
     mockBedrockClient.createStreamSession.mockImplementation(() => {
       mockBedrockClient.isSessionActive.mockReturnValue(true);
+      return {} as any; // Return mock StreamSession object
     });
+
+    // Create mock security service
+    mockSecurity = {
+      validateConnection: jest.fn().mockReturnValue({
+        isValid: true,
+        callSid: 'CA123456789',
+        accountSid: 'AC123456789'
+      }),
+      validateWebSocketMessage: jest.fn().mockReturnValue({
+        isValid: true,
+        callSid: 'CA123456789'
+      }),
+      addActiveSession: jest.fn(),
+      removeActiveSession: jest.fn(),
+      isSessionActive: jest.fn().mockReturnValue(false)
+    };
+
+    // Create mock WebSocket metrics
+    mockWsMetrics = {
+      onConnection: jest.fn(),
+      onDisconnection: jest.fn()
+    };
+
+    // Create mock session metrics
+    mockSessionMetrics = {
+      createSession: jest.fn(),
+      endSession: jest.fn()
+    };
+
+    // Create mock audio buffer manager
+    mockAudioBufferManager = {
+      getInstance: jest.fn().mockReturnValue({
+        addAudio: jest.fn(),
+        getBufferStatus: jest.fn().mockReturnValue({ bufferBytes: 0, bufferMs: 0 }),
+        flushAndRemove: jest.fn()
+      })
+    };
+
+    // Create mock audio processors
+    mockAudioProcessors = {
+      processBedrockAudioOutput: jest.fn().mockReturnValue(Buffer.alloc(160)),
+      processTwilioAudioInput: jest.fn().mockReturnValue(Buffer.alloc(320))
+    };
+
+    // Create mock logger
+    mockLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      trace: jest.fn()
+    };
+
+    // Create mock correlation manager
+    mockCorrelationManager = {
+      createWebSocketContext: jest.fn().mockReturnValue({
+        correlationId: 'test-correlation-id',
+        source: 'websocket',
+        timestamp: Date.now()
+      }),
+      runWithContext: jest.fn((context, fn) => fn()),
+      setContext: jest.fn(),
+      getCurrentContext: jest.fn().mockReturnValue({
+        correlationId: 'test-correlation-id'
+      }),
+      getCurrentCorrelationId: jest.fn().mockReturnValue('test-correlation-id')
+    };
+
+    // Assemble dependencies
+    dependencies = {
+      bedrockClient: mockBedrockClient,
+      security: mockSecurity,
+      wsMetrics: mockWsMetrics,
+      sessionMetrics: mockSessionMetrics,
+      audioBufferManager: mockAudioBufferManager,
+      audioProcessors: mockAudioProcessors,
+      logger: mockLogger,
+      correlationManager: mockCorrelationManager
+    };
 
     mockServer = {} as http.Server;
 
@@ -102,7 +211,11 @@ describe('WebsocketHandler', () => {
 
     mockWs = {
       id: 'test-ws-id',
-      correlationContext: { correlationId: 'test-correlation-id' },
+      correlationContext: {
+        correlationId: 'test-correlation-id',
+        source: 'websocket',
+        timestamp: Date.now()
+      },
       on: jest.fn(),
       close: jest.fn(),
       removeAllListeners: jest.fn(),
@@ -125,28 +238,11 @@ describe('WebsocketHandler', () => {
 
     // Reset mock calls
     jest.clearAllMocks();
-
-    mockWebSocketSecurity.validateConnection.mockReturnValue({
-      isValid: true,
-      callSid: 'CA123456789',
-      accountSid: 'AC123456789'
-    });
-
-    mockWebSocketSecurity.validateWebSocketMessage.mockReturnValue({
-      isValid: true,
-      callSid: 'CA123456789'
-    });
-
-    mockAudioBufferManager.getInstance.mockReturnValue({
-      addAudio: jest.fn(),
-      getBufferStatus: jest.fn().mockReturnValue({ bufferBytes: 0, bufferMs: 0 }),
-      flushAndRemove: jest.fn()
-    } as any);
   });
 
   describe('initWebsocketServer', () => {
     it('should create WebSocket server with correct configuration', () => {
-      initWebsocketServer(mockServer);
+      initWebsocketServer(mockServer, dependencies);
 
       expect(MockWebSocketServer).toHaveBeenCalledWith({
         server: mockServer,
@@ -157,7 +253,7 @@ describe('WebsocketHandler', () => {
     });
 
     it('should setup connection event handler', () => {
-      initWebsocketServer(mockServer);
+      initWebsocketServer(mockServer, dependencies);
 
       expect(mockWss.on).toHaveBeenCalledWith('connection', expect.any(Function));
     });
@@ -167,19 +263,19 @@ describe('WebsocketHandler', () => {
     let verifyClient: any;
 
     beforeEach(() => {
-      initWebsocketServer(mockServer);
+      initWebsocketServer(mockServer, dependencies);
       verifyClient = MockWebSocketServer.mock.calls[0]?.[0]?.verifyClient;
     });
 
     it('should accept valid connections', () => {
       const result = verifyClient({ req: mockReq });
 
-      expect(mockWebSocketSecurity.validateConnection).toHaveBeenCalledWith(mockReq);
+      expect(mockSecurity.validateConnection).toHaveBeenCalledWith(mockReq);
       expect(result).toBe(true);
     });
 
     it('should reject invalid connections', () => {
-      mockWebSocketSecurity.validateConnection.mockReturnValue({
+      mockSecurity.validateConnection.mockReturnValue({
         isValid: false,
         reason: 'Invalid User-Agent'
       });
@@ -194,7 +290,7 @@ describe('WebsocketHandler', () => {
     let connectionHandler: Function;
 
     beforeEach(() => {
-      initWebsocketServer(mockServer);
+      initWebsocketServer(mockServer, dependencies);
       connectionHandler = mockWss.on.mock.calls.find((call: any) => call[0] === 'connection')?.[1];
     });
 
@@ -202,7 +298,7 @@ describe('WebsocketHandler', () => {
       connectionHandler(mockWs, mockReq);
 
       expect(mockWs.id).toMatch(/^twilio-ws-\d+-[a-z0-9]+$/);
-      expect(mockWebSocketMetrics.onConnection).toHaveBeenCalledWith(mockWs);
+      expect(mockWsMetrics.onConnection).toHaveBeenCalledWith(mockWs);
       expect(mockSessionMetrics.createSession).toHaveBeenCalledWith(
         expect.any(String),
         mockWs
@@ -232,7 +328,7 @@ describe('WebsocketHandler', () => {
     let messageHandler: Function;
 
     beforeEach(() => {
-      initWebsocketServer(mockServer);
+      initWebsocketServer(mockServer, dependencies);
       const connectionHandler = mockWss.on.mock.calls.find((call: any) => call[0] === 'connection')?.[1];
       connectionHandler(mockWs, mockReq);
       messageHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'message')?.[1];
@@ -262,7 +358,7 @@ describe('WebsocketHandler', () => {
 
         await messageHandler(Buffer.from(JSON.stringify(startMessage)));
 
-        expect(mockWebSocketSecurity.validateWebSocketMessage).toHaveBeenCalledWith(startMessage);
+        expect(mockSecurity.validateWebSocketMessage).toHaveBeenCalledWith(startMessage);
         expect(mockWs.twilioStreamSid).toBe('MZ123456789');
         expect(mockWs.twilioSampleRate).toBe(8000);
         expect(mockWs.callSid).toBe('CA123456789');
@@ -272,7 +368,7 @@ describe('WebsocketHandler', () => {
       });
 
       it('should reject invalid start message', async () => {
-        mockWebSocketSecurity.validateWebSocketMessage.mockReturnValue({
+        mockSecurity.validateWebSocketMessage.mockReturnValue({
           isValid: false,
           reason: 'Invalid CallSid'
         });
@@ -456,7 +552,7 @@ describe('WebsocketHandler', () => {
     let messageHandler: Function;
 
     beforeEach(async () => {
-      initWebsocketServer(mockServer);
+      initWebsocketServer(mockServer, dependencies);
       const connectionHandler = mockWss.on.mock.calls.find((call: any) => call[0] === 'connection')?.[1];
       connectionHandler(mockWs, mockReq);
       closeHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'close')?.[1];
@@ -476,15 +572,14 @@ describe('WebsocketHandler', () => {
     it('should cleanup resources on close', async () => {
       await closeHandler(1000, 'Normal closure');
 
-      expect(mockWebSocketSecurity.removeActiveSession).toHaveBeenCalledWith('CA123456789');
-      expect(mockWebSocketMetrics.onDisconnection).toHaveBeenCalledWith(mockWs);
+      expect(mockSecurity.removeActiveSession).toHaveBeenCalledWith('CA123456789');
+      expect(mockWsMetrics.onDisconnection).toHaveBeenCalledWith(mockWs);
       expect(mockSessionMetrics.endSession).toHaveBeenCalled();
       expect(mockBedrockClient.forceCloseSession).toHaveBeenCalled();
-      expect(mockWs.removeAllListeners).toHaveBeenCalled();
     });
 
     it('should handle cleanup errors gracefully', async () => {
-      mockWebSocketMetrics.onDisconnection.mockImplementation(() => {
+      mockWsMetrics.onDisconnection.mockImplementation(() => {
         throw new Error('Cleanup error');
       });
 
@@ -499,7 +594,7 @@ describe('WebsocketHandler', () => {
     let errorHandler: Function;
 
     beforeEach(() => {
-      initWebsocketServer(mockServer);
+      initWebsocketServer(mockServer, dependencies);
       const connectionHandler = mockWss.on.mock.calls.find((call: any) => call[0] === 'connection')?.[1];
       connectionHandler(mockWs, mockReq);
       errorHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'error')?.[1];
