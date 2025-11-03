@@ -129,7 +129,7 @@ twilio-bedrock-bridge/
 │   │   ├── staging/                      # Staging environment
 │   │   └── prod/                         # Production environment
 │   ├── bootstrap/                        # Initial setup (S3 state backend)
-└── scripts/                              # Build and deployment tools
+└── scripts/                              # 🔧 Build and deployment tools
     ├── build-and-push.sh                # Container build automation
     └── deploy.sh                        # Deployment automation
 ```

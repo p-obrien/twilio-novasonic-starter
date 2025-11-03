@@ -866,6 +866,32 @@ console.log('Available tools:', toolRegistry.getStats());
 "
 ```
 
+### Knowledge Base Management
+```bash
+# Test weather tool directly
+node -e "
+const { weatherTool } = require('./dist/tools/WeatherTool');
+weatherTool.execute({ location: 'San Francisco', units: 'fahrenheit' })
+  .then(result => console.log('Weather:', result.speechText));
+"
+
+# Test agent integration
+node -e "
+const { createWeatherAgent } = require('./dist/agents/WeatherAgent');
+const agent = createWeatherAgent({
+  agentId: process.env.BEDROCK_AGENT_ID,
+  agentAliasId: process.env.BEDROCK_AGENT_ALIAS_ID
+});
+agent.testWeather('New York').then(success => console.log('Test result:', success));
+"
+
+# Monitor tool registry
+node -e "
+const { toolRegistry } = require('./dist/agents/ToolRegistry');
+console.log('Available tools:', toolRegistry.getStats());
+"
+```
+
 ### Knowledge Base Operations
 The Knowledge Base is automatically deployed and configured by OpenTofu. All knowledge retrieval is handled automatically by the Bedrock Agent.
 
