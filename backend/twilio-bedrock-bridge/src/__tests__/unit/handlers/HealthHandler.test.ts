@@ -45,7 +45,16 @@ describe('HealthHandler', () => {
       expect(mockJson).toHaveBeenCalledWith({
         status: 'ready',
         timestamp: expect.any(String),
-        uptime: mockUptime
+        uptime: mockUptime,
+        circuitBreaker: {
+          state: 'CLOSED',
+          failureCount: 0,
+          successCount: 0,
+          totalSuccesses: expect.any(Number),
+          totalFailures: expect.any(Number),
+          totalRejections: expect.any(Number),
+          nextAttempt: null
+        }
       });
     });
 
@@ -317,11 +326,15 @@ describe('HealthHandler', () => {
       );
 
       const response = mockJson.mock.calls[0][0];
-      
-      expect(Object.keys(response)).toEqual(['status', 'timestamp', 'uptime']);
+
+      expect(Object.keys(response)).toEqual(['status', 'timestamp', 'uptime', 'circuitBreaker']);
       expect(typeof response.status).toBe('string');
       expect(typeof response.timestamp).toBe('string');
       expect(typeof response.uptime).toBe('number');
+      expect(typeof response.circuitBreaker).toBe('object');
+      expect(response.circuitBreaker).toHaveProperty('state');
+      expect(response.circuitBreaker).toHaveProperty('failureCount');
+      expect(response.circuitBreaker).toHaveProperty('successCount');
     });
 
     it('should return consistent error response structure', async () => {

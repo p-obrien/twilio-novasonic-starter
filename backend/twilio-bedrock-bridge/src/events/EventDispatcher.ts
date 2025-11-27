@@ -5,7 +5,7 @@
  */
 
 import logger from '../observability/logger';
-import { SessionData } from '../session/SessionManager';
+import { SessionData } from '../session/UnifiedSessionManager';
 import { isObject } from '../types/TypeGuards';
 
 /**

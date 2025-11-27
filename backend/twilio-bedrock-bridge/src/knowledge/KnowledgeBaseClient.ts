@@ -27,7 +27,7 @@ import { NodeHttp2Handler } from "@smithy/node-http-handler";
 
 import { KnowledgeResult, ValidationResult } from '../types/IntegrationTypes';
 import { BedrockClientError, createBedrockServiceError, ErrorSeverity, ErrorContext } from '../errors/ClientErrors';
-import { config } from '../config/AppConfig';
+import { configManager } from '../config/ConfigurationManager';
 import logger from '../observability/logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { DataProtection } from '../observability/dataProtection';
@@ -118,13 +118,13 @@ export class KnowledgeBaseClient implements IKnowledgeBaseClient {
   // ============================================================================
 
   constructor(clientConfig: KnowledgeBaseClientConfig = {}) {
-    this.requestTimeoutMs = clientConfig.requestTimeoutMs || config.integration.thresholds.knowledgeQueryTimeoutMs;
+    this.requestTimeoutMs = clientConfig.requestTimeoutMs || configManager.integration.thresholds.knowledgeQueryTimeoutMs;
     this.maxResults = clientConfig.maxResults || 5; // Reasonable default for voice responses
 
     this.bedrockAgentClient = this.createBedrockAgentClient(clientConfig);
 
     logger.info('Knowledge Base Client initialized', {
-      region: clientConfig.region || config.aws.region,
+      region: clientConfig.region || configManager.aws.region,
       requestTimeoutMs: this.requestTimeoutMs,
       maxResults: this.maxResults,
     });
@@ -329,7 +329,7 @@ export class KnowledgeBaseClient implements IKnowledgeBaseClient {
     });
 
     const bedrockClientConfig: BedrockAgentRuntimeClientConfig = {
-      region: clientConfig.region || config.aws.region,
+      region: clientConfig.region || configManager.aws.region,
       requestHandler: nodeHttp2Handler,
       ...clientConfig.clientConfig,
     };

@@ -36,6 +36,7 @@ import { inspect } from 'util';
 
 import { InferenceConfig } from "./types/SharedTypes";
 import { bedrockObservability } from './observability/bedrockObservability';
+import { CLIENT_DEFAULTS } from './config/ClientConfig';
 import {
   DefaultAudioInputConfiguration,
   DefaultAudioOutputConfiguration,
@@ -46,8 +47,9 @@ import {
 import logger from './observability/logger';
 import { CorrelationIdManager } from './utils/correlationId';
 import { setTimeoutWithCorrelation } from './utils/asyncCorrelation';
-import { config } from './config/AppConfig';
-import { StreamSession } from './session/StreamSession';
+import { configManager } from './config/ConfigurationManager';
+import { UnifiedStreamSession } from './session/UnifiedStreamSession';
+import { SessionConfig } from './session/interfaces';
 import { 
   BedrockClientError, 
   isBedrockClientError, 
@@ -71,8 +73,6 @@ export interface NovaSonicBidirectionalStreamClientConfig {
     region?: string;
     modelId?: string;
   };
-  enableOrchestrator?: boolean;
-  enableOrchestratorDebug?: boolean;
 }
 
 interface SessionData {
@@ -113,7 +113,7 @@ export class NovaSonicBidirectionalStreamClient {
   private readonly bedrockRuntimeClient: BedrockRuntimeClient;
   private readonly inferenceConfig: InferenceConfig;
   private readonly activeSessions = new Map<string, SessionData>();
-  private readonly streamSessions = new Map<string, StreamSession>();
+  private readonly streamSessions = new Map<string, UnifiedStreamSession>();
   private readonly sessionLastActivity = new Map<string, number>();
   private readonly sessionCleanupInProgress = new Set<string>();
   private cleanupTimer: NodeJS.Timeout | null = null;
@@ -126,7 +126,7 @@ export class NovaSonicBidirectionalStreamClient {
 
   constructor(config: NovaSonicBidirectionalStreamClientConfig) {
     this.bedrockRuntimeClient = this.createBedrockClient(config);
-    this.inferenceConfig = this.createInferenceConfig(config.inferenceConfig);
+    this.inferenceConfig = this.createInferenceConfig(configManager.inference);
     this.startPeriodicCleanup();
   }
 
@@ -176,7 +176,7 @@ export class NovaSonicBidirectionalStreamClient {
   public createStreamSession(
     sessionId: string = randomUUID(),
     config?: NovaSonicBidirectionalStreamClientConfig
-  ): StreamSession {
+  ): UnifiedStreamSession {
     // Validate session ID
     if (!isValidSessionId(sessionId)) {
       throw ValidationError.create(
@@ -200,7 +200,7 @@ export class NovaSonicBidirectionalStreamClient {
     if (config?.inferenceConfig) {
       try {
         validateInferenceConfig(
-          config.inferenceConfig,
+          configManager.inference,
           'createStreamSession',
           CorrelationIdManager.getCurrentCorrelationId()
         );
@@ -213,7 +213,7 @@ export class NovaSonicBidirectionalStreamClient {
           [String(validationError)],
           'createStreamSession',
           CorrelationIdManager.getCurrentCorrelationId(),
-          { config: config.inferenceConfig }
+          { config: configManager.inference }
         );
       }
     }
@@ -221,7 +221,16 @@ export class NovaSonicBidirectionalStreamClient {
     const session = this.createSessionData(sessionId, config?.inferenceConfig);
     this.activeSessions.set(sessionId, session);
 
-    const streamSession = new StreamSession(sessionId, this);
+    // Create session configuration for UnifiedStreamSession
+    const sessionConfig: SessionConfig = {
+      sessionId,
+      maxQueueSize: CLIENT_DEFAULTS.MAX_AUDIO_QUEUE_SIZE,
+      processingTimeout: CLIENT_DEFAULTS.SESSION_TIMEOUT,
+      enableMetrics: true,
+      inferenceConfig: config?.inferenceConfig || this.inferenceConfig
+    };
+
+    const streamSession = new UnifiedStreamSession(sessionConfig, this);
     this.streamSessions.set(sessionId, streamSession);
 
     return streamSession;
@@ -243,7 +252,7 @@ export class NovaSonicBidirectionalStreamClient {
 
       try {
         // Start custom observability tracking
-        bedrockObservability.startSession(sessionId, config.bedrock.modelId);
+        bedrockObservability.startSession(sessionId, configManager.bedrock.modelId);
 
       this.setupSessionStartEvent(sessionId);
       const asyncIterable = this.createSessionAsyncIterable(sessionId);
@@ -252,7 +261,7 @@ export class NovaSonicBidirectionalStreamClient {
 
       // Debug: log the command being sent
       const command = new InvokeModelWithBidirectionalStreamCommand({
-        modelId: config.bedrock.modelId,
+        modelId: configManager.bedrock.modelId,
         body: asyncIterable,
       });
 
@@ -631,7 +640,7 @@ export class NovaSonicBidirectionalStreamClient {
 
     const clientConfig: BedrockRuntimeClientConfig = {
       ...config.clientConfig,
-      region: config.clientConfig.region || config.bedrock?.region || "us-east-1",
+      region: config.clientConfig.region || configManager.bedrock?.region || "us-east-1",
       requestHandler: nodeHttp2Handler
     };
 
@@ -882,78 +891,6 @@ export class NovaSonicBidirectionalStreamClient {
     if (sessionsToCleanup.length > 0) {
       logger.info(`Cleaned up ${sessionsToCleanup.length} inactive sessions`);
     }
-  }
-
-  /**
-   * Check if orchestrator is enabled (placeholder implementation)
-   */
-  public isOrchestratorEnabled(): boolean {
-    // For now, return false as orchestrator is not implemented
-    // This should be updated when orchestrator integration is added
-    return false;
-  }
-
-  /**
-   * Process text input through orchestrator (placeholder implementation)
-   */
-  public async processTextInput(
-    text: string,
-    sessionId: string,
-    context?: any
-  ): Promise<any> {
-    const startTime = Date.now();
-    
-    try {
-      // For now, return a basic conversation response
-      // This should be updated when orchestrator integration is added
-      const processingTime = Date.now() - startTime;
-      
-      logger.info(`Text input processed for session ${sessionId}`, {
-        processingTime,
-        textLength: text.length,
-        hasContext: !!context
-      });
-      
-      return {
-        response: `I understand your message: "${text}". The orchestrator integration is not currently enabled.`,
-        source: 'conversation',
-        sessionId,
-        metadata: {
-          processingTime,
-          inputTokens: Math.ceil(text.length / 4), // Rough token estimate
-          outputTokens: Math.ceil(text.length / 4),
-          fallbackReason: 'orchestrator_disabled'
-        }
-      };
-      
-    } catch (error) {
-      logger.error(`Error processing text input for session ${sessionId}:`, error);
-      return {
-        response: 'I apologize, but I encountered an issue processing your request.',
-        source: 'error',
-        sessionId,
-        metadata: {
-          processingTime: Date.now() - startTime,
-          error: error instanceof Error ? error.message : String(error)
-        }
-      };
-    }
-  }
-
-  /**
-   * Update orchestrator configuration (placeholder)
-   */
-  public updateOrchestratorConfig(config: any): void {
-    // Placeholder for orchestrator configuration updates
-    logger.debug('Orchestrator config update requested (not implemented)', { config });
-  }
-
-  /**
-   * Get orchestrator configuration (placeholder)
-   */
-  public getOrchestratorConfig(): any {
-    // Placeholder for orchestrator configuration retrieval
-    return {};
   }
 
   /**

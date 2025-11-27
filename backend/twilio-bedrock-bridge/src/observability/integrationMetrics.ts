@@ -60,18 +60,6 @@ interface IntentClassificationMetrics {
   errorType?: string;
 }
 
-/**
- * Orchestrator routing metrics data
- */
-interface OrchestratorMetrics {
-  routingDecision: 'knowledge' | 'agent' | 'conversation';
-  totalLatencyMs: number;
-  success: boolean;
-  sessionId: string;
-  fallbackUsed?: boolean;
-  errorType?: string;
-}
-
 // ============================================================================
 // INTEGRATION METRICS SERVICE
 // ============================================================================
@@ -385,86 +373,6 @@ class IntegrationMetricsService {
   }
 
   /**
-   * Record orchestrator routing metrics
-   */
-  static recordOrchestratorRouting(metrics: OrchestratorMetrics): void {
-    try {
-      const dimensions: MetricDimensions = {
-        RoutingDecision: metrics.routingDecision,
-        Success: metrics.success.toString(),
-        SessionId: metrics.sessionId,
-        FallbackUsed: (metrics.fallbackUsed || false).toString()
-      };
-
-      if (metrics.errorType) {
-        dimensions.ErrorType = metrics.errorType;
-      }
-
-      // Core metrics
-      const metricsToRecord = [
-        {
-          name: 'OrchestratorRoutingDecisions',
-          value: 1,
-          unit: 'Count',
-          dimensions
-        },
-        {
-          name: 'OrchestratorTotalLatency',
-          value: metrics.totalLatencyMs,
-          unit: 'Milliseconds',
-          dimensions
-        }
-      ];
-
-      // Error and fallback metrics
-      if (!metrics.success) {
-        metricsToRecord.push({
-          name: 'OrchestratorErrors',
-          value: 1,
-          unit: 'Count',
-          dimensions
-        });
-      }
-
-      if (metrics.fallbackUsed) {
-        metricsToRecord.push({
-          name: 'OrchestratorFallbacksUsed',
-          value: 1,
-          unit: 'Count',
-          dimensions
-        });
-      }
-
-      CloudWatchMetricsService.recordMetrics(metricsToRecord);
-
-      // Also record to OpenTelemetry metrics
-      metricsUtils.recordCustomMetric('orchestrator_routing_total', 1, {
-        routing_decision: metrics.routingDecision,
-        success: metrics.success.toString(),
-        fallback_used: (metrics.fallbackUsed || false).toString()
-      });
-
-      metricsUtils.recordCustomMetric('orchestrator_total_duration_seconds', metrics.totalLatencyMs / 1000, {
-        routing_decision: metrics.routingDecision,
-        success: metrics.success.toString()
-      });
-
-      logger.debug('Recorded orchestrator routing metrics', {
-        routingDecision: metrics.routingDecision,
-        success: metrics.success,
-        totalLatencyMs: metrics.totalLatencyMs,
-        fallbackUsed: metrics.fallbackUsed
-      });
-
-    } catch (error) {
-      logger.error('Failed to record orchestrator routing metrics', {
-        error: error instanceof Error ? error.message : String(error),
-        metrics
-      });
-    }
-  }
-
-  /**
    * Record integration performance summary metrics
    */
   static recordIntegrationPerformanceSummary(
@@ -705,27 +613,6 @@ export const IntegrationMetrics = {
   },
 
   /**
-   * Record orchestrator routing decision
-   */
-  orchestratorRouting: (
-    routingDecision: 'knowledge' | 'agent' | 'conversation',
-    totalLatencyMs: number,
-    sessionId: string,
-    success: boolean = true,
-    fallbackUsed: boolean = false,
-    errorType?: string
-  ) => {
-    IntegrationMetricsService.recordOrchestratorRouting({
-      routingDecision,
-      totalLatencyMs,
-      success,
-      sessionId,
-      fallbackUsed,
-      errorType
-    });
-  },
-
-  /**
    * Record integration performance summary
    */
   integrationSummary: (
@@ -753,8 +640,7 @@ export {
   IntegrationMetricsService,
   KnowledgeBaseMetrics,
   AgentInvocationMetrics,
-  IntentClassificationMetrics,
-  OrchestratorMetrics
+  IntentClassificationMetrics
 };
 
 export default IntegrationMetricsService;

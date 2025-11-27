@@ -58,8 +58,8 @@ export {
   getConfigKeyFromEnvVar 
 } from './ConfigurationSchema';
 
-// Legacy compatibility (deprecated)
-export { config as legacyConfig } from './AppConfig';
+// Legacy compatibility (deprecated - kept for type definitions only)
+// export { config as legacyConfig } from './AppConfig';
 export type { AppConfig } from './AppConfig';
 
 // Default export is the configuration manager instance

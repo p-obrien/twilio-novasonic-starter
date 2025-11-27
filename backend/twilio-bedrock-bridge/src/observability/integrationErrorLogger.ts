@@ -27,7 +27,7 @@ interface PerformanceMonitoringData {
   endTime: number;
   durationMs: number;
   success: boolean;
-  component: 'knowledge' | 'agent' | 'orchestrator' | 'classifier';
+  component: 'knowledge' | 'agent' | 'classifier';
   sessionId?: string;
   metadata?: Record<string, any>;
 }
@@ -38,7 +38,7 @@ interface PerformanceMonitoringData {
 interface ErrorContext {
   sessionId?: string;
   correlationId?: string;
-  component: 'knowledge' | 'agent' | 'orchestrator' | 'classifier';
+  component: 'knowledge' | 'agent' | 'classifier';
   operation: string;
   metadata: Record<string, any>;
   performanceData?: PerformanceMonitoringData;
@@ -203,7 +203,7 @@ class IntegrationErrorLoggerService {
    */
   static createPerformanceMonitor(
     operationName: string,
-    component: 'knowledge' | 'agent' | 'orchestrator' | 'classifier',
+    component: 'knowledge' | 'agent' | 'classifier',
     sessionId?: string,
     metadata?: Record<string, any>
   ): {
@@ -242,7 +242,7 @@ class IntegrationErrorLoggerService {
    */
   static logOperationStart(
     operation: string,
-    component: 'knowledge' | 'agent' | 'orchestrator' | 'classifier',
+    component: 'knowledge' | 'agent' | 'classifier',
     sessionId?: string,
     metadata?: Record<string, any>
   ): void {
@@ -263,7 +263,7 @@ class IntegrationErrorLoggerService {
    */
   static logOperationComplete(
     operation: string,
-    component: 'knowledge' | 'agent' | 'orchestrator' | 'classifier',
+    component: 'knowledge' | 'agent' | 'classifier',
     durationMs: number,
     success: boolean,
     sessionId?: string,
@@ -365,17 +365,6 @@ class IntegrationErrorLoggerService {
             logEntry.context.userContext?.inputLength
           );
           break;
-          
-        case 'orchestrator':
-          IntegrationMetrics.orchestratorRouting(
-            logEntry.metadata.routingDecision || 'conversation',
-            logEntry.performanceImpact?.durationMs || 0,
-            logEntry.sessionId || 'unknown',
-            false,
-            logEntry.metadata.fallbackUsed || false,
-            logEntry.errorType
-          );
-          break;
       }
     } catch (error) {
       logger.error('Failed to record error metrics', {
@@ -426,16 +415,6 @@ class IntegrationErrorLoggerService {
             data.sessionId,
             data.metadata?.inputLength,
             data.metadata?.customRuleMatched
-          );
-          break;
-          
-        case 'orchestrator':
-          IntegrationMetrics.orchestratorRouting(
-            data.metadata?.routingDecision || 'conversation',
-            data.durationMs,
-            data.sessionId || 'unknown',
-            true,
-            data.metadata?.fallbackUsed || false
           );
           break;
       }
@@ -490,8 +469,7 @@ class IntegrationErrorLoggerService {
 
     return (
       criticalErrorTypes.includes(logEntry.errorType) ||
-      (logEntry.performanceImpact?.performanceDegradation || 0) > criticalPerformanceDegradation ||
-      logEntry.component === 'orchestrator' // Orchestrator errors are always critical
+      (logEntry.performanceImpact?.performanceDegradation || 0) > criticalPerformanceDegradation
     );
   }
 
@@ -499,7 +477,7 @@ class IntegrationErrorLoggerService {
    * Get expected duration for an operation
    */
   private static getExpectedDuration(
-    component: 'knowledge' | 'agent' | 'orchestrator' | 'classifier',
+    component: 'knowledge' | 'agent' | 'classifier',
     operation: string
   ): number {
     // Expected durations in milliseconds based on component and operation
@@ -516,10 +494,6 @@ class IntegrationErrorLoggerService {
         classify: 500, // 500ms for intent classification
         addRule: 50,
         removeRule: 50
-      },
-      orchestrator: {
-        route: 200, // 200ms for routing decisions
-        processInput: 4000 // 4 seconds for complete processing
       }
     };
 
@@ -608,26 +582,6 @@ export const IntegrationErrorLogger = {
       metadata: metadata || {},
       performanceData,
       userContext: { inputLength }
-    });
-  },
-
-  /**
-   * Log orchestrator error
-   */
-  orchestratorError: (
-    error: Error,
-    operation: string,
-    sessionId: string,
-    routingDecision?: string,
-    performanceData?: PerformanceMonitoringData,
-    metadata?: Record<string, any>
-  ) => {
-    IntegrationErrorLoggerService.logIntegrationError(error, {
-      component: 'orchestrator',
-      operation,
-      sessionId,
-      metadata: { routingDecision, ...(metadata || {}) },
-      performanceData
     });
   },
 

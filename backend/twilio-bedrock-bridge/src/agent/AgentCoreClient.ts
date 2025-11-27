@@ -27,7 +27,7 @@ import { NodeHttp2Handler } from "@smithy/node-http-handler";
 
 import { AgentResponse, ValidationResult } from '../types/IntegrationTypes';
 import { BedrockClientError, createBedrockServiceError, ErrorSeverity, ErrorContext } from '../errors/ClientErrors';
-import { config } from '../config/AppConfig';
+import { configManager } from '../config/ConfigurationManager';
 import logger from '../observability/logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { DataProtection } from '../observability/dataProtection';
@@ -116,12 +116,12 @@ export class AgentCoreClient implements IAgentCoreClient {
   // ============================================================================
 
   constructor(clientConfig: AgentCoreClientConfig = {}) {
-    this.requestTimeoutMs = clientConfig.requestTimeoutMs || config.integration.thresholds.agentInvocationTimeoutMs;
+    this.requestTimeoutMs = clientConfig.requestTimeoutMs || configManager.integration.thresholds.agentInvocationTimeoutMs;
 
     this.bedrockAgentClient = this.createBedrockAgentClient(clientConfig);
 
     logger.info('Agent Core Client initialized', {
-      region: clientConfig.region || config.aws.region,
+      region: clientConfig.region || configManager.aws.region,
       requestTimeoutMs: this.requestTimeoutMs,
     });
   }
@@ -324,7 +324,7 @@ export class AgentCoreClient implements IAgentCoreClient {
     });
 
     const bedrockClientConfig: BedrockAgentRuntimeClientConfig = {
-      region: clientConfig.region || config.aws.region,
+      region: clientConfig.region || configManager.aws.region,
       requestHandler: nodeHttp2Handler,
       ...clientConfig.clientConfig,
     };

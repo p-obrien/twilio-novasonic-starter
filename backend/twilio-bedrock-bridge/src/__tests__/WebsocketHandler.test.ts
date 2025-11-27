@@ -17,11 +17,6 @@ const mockBedrockClient = {
   sendContentEnd: jest.fn(),
   sendPromptEnd: jest.fn(),
   forceCloseSession: jest.fn(),
-  // Orchestrator methods
-  isOrchestratorEnabled: jest.fn().mockReturnValue(false),
-  processTextInput: jest.fn().mockResolvedValue({ response: 'test response', source: 'conversation' }),
-  updateOrchestratorConfig: jest.fn(),
-  getOrchestratorConfig: jest.fn().mockReturnValue({}),
   // Lifecycle methods
   cleanup: jest.fn(),
   shutdown: jest.fn()

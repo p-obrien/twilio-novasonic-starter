@@ -36,6 +36,6 @@ export {
   SessionResourceStats 
 } from './ResourceAwareSession';
 
-// Export legacy components for backward compatibility
-export { SessionManager } from './SessionManager';
-export { StreamSession } from './StreamSession';
+// Legacy components removed - use UnifiedSessionManager and UnifiedStreamSession instead
+// export { SessionManager } from './SessionManager';
+// export { StreamSession } from './StreamSession';

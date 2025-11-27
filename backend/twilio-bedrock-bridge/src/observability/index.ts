@@ -42,13 +42,12 @@ export {
   forceMemoryCleanup,
   getObservabilityMetrics 
 } from './initialization';
-export { 
-  IntegrationMetricsService, 
+export {
+  IntegrationMetricsService,
   IntegrationMetrics,
   KnowledgeBaseMetrics,
   AgentInvocationMetrics,
-  IntentClassificationMetrics,
-  OrchestratorMetrics
+  IntentClassificationMetrics
 } from './integrationMetrics';
 export {
   IntegrationErrorLoggerService,

@@ -1,24 +1,27 @@
 /**
  * @fileoverview Client Module Exports
- * 
- * Exports the enhanced Nova Sonic client as the primary client.
- * The base client is still available internally but not exposed.
+ *
+ * Exports the Nova Sonic bidirectional stream client.
+ * Provides both named and default exports for convenience.
  */
 
-// For now, export the bidirectional stream client directly as NovaSonicClient
-// This maintains compatibility with existing code while we work on the enhanced wrapper
-export { 
+// Export the main client class and configuration types
+export {
+  NovaSonicBidirectionalStreamClient,
+  NovaSonicBidirectionalStreamClientConfig
+} from '../client';
+
+// Re-export as NovaSonicClient for backward compatibility
+export {
   NovaSonicBidirectionalStreamClient as NovaSonicClient,
   NovaSonicBidirectionalStreamClientConfig as NovaSonicClientConfig
 } from '../client';
 
-// Export the TextProcessingResult type from the enhanced client
-export { TextProcessingResult } from './NovaSonicClient';
-
 // Factory function for creating clients
-export function createNovaSonicClient(config: any) {
-  const { NovaSonicBidirectionalStreamClient } = require('../client');
-  return new NovaSonicBidirectionalStreamClient(config);
+import { NovaSonicBidirectionalStreamClient as Client, NovaSonicBidirectionalStreamClientConfig as Config } from '../client';
+
+export function createNovaSonicClient(config: Config): Client {
+  return new Client(config);
 }
 
 // Default export

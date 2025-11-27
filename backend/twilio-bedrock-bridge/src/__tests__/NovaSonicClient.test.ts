@@ -47,7 +47,6 @@ describe('NovaSonicBidirectionalStreamClient', () => {
       clientConfig: {
         region: 'us-east-1'
       },
-      enableOrchestrator: false
     });
   });
 

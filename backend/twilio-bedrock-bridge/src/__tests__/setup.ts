@@ -226,6 +226,9 @@ declare global {
   var generateTestAudio: (length?: number, frequency?: number, sampleRate?: number) => Buffer;
   var generateSilentAudio: (length?: number) => Buffer;
   var generateNoisyAudio: (length?: number) => Buffer;
+  var createTestBuffer: (size: number, pattern?: number) => Buffer;
+  var createMuLawTestBuffer: (size: number) => Buffer;
+  var createPcm16TestBuffer: (samples: number) => Buffer;
   var waitFor: (ms: number) => Promise<void>;
   var waitForCondition: (condition: () => boolean, timeout?: number, interval?: number) => Promise<boolean>;
   var clearAllMocks: () => void;

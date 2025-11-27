@@ -18,7 +18,7 @@
 import { KnowledgeBaseClient, KnowledgeBaseError } from './KnowledgeBaseClient';
 import { KnowledgeResult, KnowledgeBaseConfig } from '../types/IntegrationTypes';
 import { BedrockClientError, ErrorSeverity, ErrorContext } from '../errors/ClientErrors';
-import { config } from '../config/AppConfig';
+import { configManager } from '../config/ConfigurationManager';
 import logger from '../observability/logger';
 import { CorrelationIdManager } from '../utils/correlationId';
 import { setTimeoutWithCorrelation } from '../utils/asyncCorrelation';
@@ -117,7 +117,7 @@ export class KnowledgeBaseService {
 
   constructor(knowledgeBaseClient?: KnowledgeBaseClient) {
     this.knowledgeBaseClient = knowledgeBaseClient || new KnowledgeBaseClient();
-    this.enabledKnowledgeBases = config.integration.knowledgeBases.filter((kb: any) => kb.enabled);
+    this.enabledKnowledgeBases = configManager.integration.knowledgeBases.filter((kb: any) => kb.enabled);
 
     logger.info('Knowledge Base Service initialized', {
       enabledKnowledgeBasesCount: this.enabledKnowledgeBases.length,
@@ -149,7 +149,7 @@ export class KnowledgeBaseService {
       const maxResponseLength = options.maxResponseLength || this.defaultMaxResponseLength;
       const minConfidence = options.minConfidence || this.defaultMinConfidence;
       const enableRetry = options.enableRetry !== false; // Default to true
-      const maxRetries = options.maxRetries || config.integration.thresholds.maxRetries;
+      const maxRetries = options.maxRetries || configManager.integration.thresholds.maxRetries;
 
       logger.debug('Starting voice knowledge query', {
         queryLength: query.length,
