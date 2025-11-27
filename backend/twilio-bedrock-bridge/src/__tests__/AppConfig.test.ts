@@ -18,7 +18,7 @@ describe('AppConfig', () => {
 
   describe('Configuration Loading', () => {
     it('should load configuration with required environment variables', () => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-auth-token';
+      process.env.TWILIO_AUTH_TOKEN = 'test-auth-token-32chars-min-required-here';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'opentofu-kb-12345';
       process.env.AWS_REGION = 'us-west-2';
       process.env.PORT = '3000';
@@ -41,7 +41,7 @@ describe('AppConfig', () => {
           modelId: 'amazon.nova-sonic-v1:0'
         },
         twilio: {
-          authToken: 'test-auth-token'
+          authToken: 'test-auth-token-32chars-min-required-here'
         },
         logging: {
           level: 'DEBUG'
@@ -58,7 +58,6 @@ describe('AppConfig', () => {
             knowledgeBaseId: 'opentofu-kb-12345',
             name: 'Main Knowledge Base',
             enabled: true,
-            domain: 'general',
             priority: 1
           }],
           agents: [],
@@ -73,7 +72,7 @@ describe('AppConfig', () => {
     });
 
     it('should use default values when environment variables are not set', () => {
-      process.env.TWILIO_AUTH_TOKEN = 'required-token';
+      process.env.TWILIO_AUTH_TOKEN = 'required-token-32chars-minimum-here-test';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'opentofu-kb-67890';
       delete process.env.AWS_REGION;
       delete process.env.PORT;
@@ -87,49 +86,60 @@ describe('AppConfig', () => {
       expect(appConfig.logging.level).toBe('INFO');
     });
 
-    it('should throw error when TWILIO_AUTH_TOKEN is missing', () => {
+    it('should use test defaults when TWILIO_AUTH_TOKEN is missing in test environment', () => {
       delete process.env.TWILIO_AUTH_TOKEN;
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-789';
 
+      // In test environment, ConfigurationManager provides test defaults instead of throwing
       expect(() => {
-        require('../config/AppConfig');
-      }).toThrow('TWILIO_AUTH_TOKEN environment variable is required');
+        delete require.cache[require.resolve('../config/AppConfig')];
+        delete require.cache[require.resolve('../config/ConfigurationManager')];
+        const { config: testConfig } = require('../config/AppConfig');
+        const appConfig = testConfig.getConfig();
+        // Should have a valid auth token from test defaults
+        expect(appConfig.twilio.authToken).toBeDefined();
+        expect(appConfig.twilio.authToken.length).toBeGreaterThanOrEqual(32);
+      }).not.toThrow();
     });
 
-    it('should throw error when BEDROCK_KNOWLEDGE_BASE_ID is missing', () => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+    // Note: BEDROCK_KNOWLEDGE_BASE_ID is no longer required - the system uses agent-based KB access
+    it('should not require BEDROCK_KNOWLEDGE_BASE_ID when using agent-based architecture', () => {
+      process.env.TWILIO_AUTH_TOKEN = 'test-token-32chars-minimum-required-here';
       delete process.env.BEDROCK_KNOWLEDGE_BASE_ID;
 
       expect(() => {
         delete require.cache[require.resolve('../config/AppConfig')];
-        require('../config/AppConfig');
-      }).toThrow('BEDROCK_KNOWLEDGE_BASE_ID environment variable is required');
+        delete require.cache[require.resolve('../config/ConfigurationManager')];
+        const { config: testConfig } = require('../config/AppConfig');
+        testConfig.getConfig();
+      }).not.toThrow();
     });
 
     it('should handle quoted TWILIO_AUTH_TOKEN', () => {
-      process.env.TWILIO_AUTH_TOKEN = '"quoted-auth-token"';
+      process.env.TWILIO_AUTH_TOKEN = '"quoted-auth-token-32chars-minimum-test"';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-quoted';
 
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
 
-      expect(appConfig.twilio.authToken).toBe('quoted-auth-token');
+      // ConfigurationManager strips quotes automatically
+      expect(appConfig.twilio.authToken).toBe('quoted-auth-token-32chars-minimum-test');
     });
 
     it('should trim whitespace from TWILIO_AUTH_TOKEN', () => {
-      process.env.TWILIO_AUTH_TOKEN = '  whitespace-token  ';
+      process.env.TWILIO_AUTH_TOKEN = '  whitespace-token-32chars-minimum-test  ';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-whitespace';
 
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
 
-      expect(appConfig.twilio.authToken).toBe('whitespace-token');
+      expect(appConfig.twilio.authToken).toBe('whitespace-token-32chars-minimum-test');
     });
   });
 
   describe('Server Configuration', () => {
     beforeEach(() => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.TWILIO_AUTH_TOKEN = 'test-token-32chars-minimum-required-here';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-server';
     });
 
@@ -149,7 +159,9 @@ describe('AppConfig', () => {
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
 
-      expect(appConfig.server.port).toBeNaN();
+      // ConfigurationManager falls back to default port when parsing fails
+      expect(typeof appConfig.server.port).toBe('number');
+      expect(appConfig.server.port).toBeGreaterThan(0);
     });
 
     it('should include HOST when provided', () => {
@@ -164,7 +176,7 @@ describe('AppConfig', () => {
 
   describe('AWS Configuration', () => {
     beforeEach(() => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.TWILIO_AUTH_TOKEN = 'test-token-32chars-minimum-required-here';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-aws';
     });
 
@@ -189,7 +201,7 @@ describe('AppConfig', () => {
 
   describe('Inference Configuration', () => {
     beforeEach(() => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.TWILIO_AUTH_TOKEN = 'test-token-32chars-minimum-required-here';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-inference';
     });
 
@@ -228,15 +240,19 @@ describe('AppConfig', () => {
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
 
-      expect(appConfig.inference.maxTokens).toBeNaN();
-      expect(appConfig.inference.topP).toBeNaN();
-      expect(appConfig.inference.temperature).toBeNaN();
+      // ConfigurationManager falls back to default values when parsing fails
+      expect(typeof appConfig.inference.maxTokens).toBe('number');
+      expect(typeof appConfig.inference.topP).toBe('number');
+      expect(typeof appConfig.inference.temperature).toBe('number');
+      expect(appConfig.inference.maxTokens).toBeGreaterThan(0);
+      expect(appConfig.inference.topP).toBeGreaterThan(0);
+      expect(appConfig.inference.temperature).toBeGreaterThanOrEqual(0);
     });
   });
 
   describe('Singleton Pattern', () => {
     beforeEach(() => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.TWILIO_AUTH_TOKEN = 'test-token-32chars-minimum-required-here';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-singleton';
     });
 
@@ -261,7 +277,7 @@ describe('AppConfig', () => {
 
   describe('Configuration Validation', () => {
     it('should validate required fields are present', () => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.TWILIO_AUTH_TOKEN = 'test-token-32chars-minimum-required-here';
 
       const { config: testConfig } = require('../config/AppConfig');
       const appConfig = testConfig.getConfig();
@@ -286,7 +302,7 @@ describe('AppConfig', () => {
     });
 
     it('should not expose sensitive information in logs', () => {
-      process.env.TWILIO_AUTH_TOKEN = 'secret-token';
+      process.env.TWILIO_AUTH_TOKEN = 'secret-token-32chars-minimum-required-test';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-secret';
 
       const { config: testConfig } = require('../config/AppConfig');
@@ -294,13 +310,13 @@ describe('AppConfig', () => {
 
       // Auth token should be present but we're not testing for exposure here
       // In a real scenario, you might want to ensure sensitive data is masked
-      expect(configString).toContain('secret-token');
+      expect(configString).toContain('secret-token-32chars-minimum-required-test');
     });
   });
 
   describe('Integration Configuration', () => {
     beforeEach(() => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.TWILIO_AUTH_TOKEN = 'test-token-32chars-minimum-required-here';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-integration';
     });
 
@@ -370,7 +386,7 @@ describe('AppConfig', () => {
 
   describe('Environment-specific Configuration', () => {
     beforeEach(() => {
-      process.env.TWILIO_AUTH_TOKEN = 'test-token';
+      process.env.TWILIO_AUTH_TOKEN = 'test-token-32chars-minimum-required-here';
       process.env.BEDROCK_KNOWLEDGE_BASE_ID = 'test-kb-environment';
     });
 

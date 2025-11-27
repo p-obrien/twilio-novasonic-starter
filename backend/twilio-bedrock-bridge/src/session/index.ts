@@ -8,7 +8,6 @@
 // Export unified session management components
 export { 
   ISession, 
-  ISessionManager, 
   BaseSession,
   SessionConfig, 
   SessionCreationOptions, 
@@ -19,7 +18,8 @@ export {
 
 export { BaseSessionManager } from './BaseSessionManager';
 export { UnifiedStreamSession, StreamClientInterface } from './UnifiedStreamSession';
-export { UnifiedSessionManager, SessionData } from './UnifiedSessionManager';
+export { UnifiedSessionManager } from './UnifiedSessionManager';
+export { SessionData } from '../client';
 export { 
   SessionErrorHandler, 
   ErrorSeverity, 
@@ -36,6 +36,5 @@ export {
   SessionResourceStats 
 } from './ResourceAwareSession';
 
-// Legacy components removed - use UnifiedSessionManager and UnifiedStreamSession instead
-// export { SessionManager } from './SessionManager';
-// export { StreamSession } from './StreamSession';
+// Export legacy components for backward compatibility
+export { StreamSession } from './StreamSession';

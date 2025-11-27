@@ -14,6 +14,7 @@
  */
 
 import { InferenceConfig } from '../types/SharedTypes';
+import { IntegrationConfig } from '../types/IntegrationTypes';
 
 /**
  * Application configuration interface
@@ -39,6 +40,7 @@ export interface AppConfig {
     level: string;
   };
   inference: InferenceConfig;
+  integration: IntegrationConfig;
 }
 
 /**

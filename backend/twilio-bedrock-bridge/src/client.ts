@@ -60,6 +60,8 @@ import {
 } from './errors/ClientErrors';
 import { isValidSessionId } from './types/TypeGuards';
 import { validateInferenceConfig } from './utils/ValidationUtils';
+import { AgentCoreManager, AgentCoreConfig, NovaToolUseEvent } from './agents/AgentCoreManager';
+import { toolRegistry } from './agents/ToolRegistry';
 
 // ============================================================================
 // TYPES AND INTERFACES
@@ -75,7 +77,7 @@ export interface NovaSonicBidirectionalStreamClientConfig {
   };
 }
 
-interface SessionData {
+export interface SessionData {
   queue: Array<any>;
   queueSignal: Subject<void>;
   closeSignal: Subject<void>;
@@ -119,6 +121,7 @@ export class NovaSonicBidirectionalStreamClient {
   private cleanupTimer: NodeJS.Timeout | null = null;
   private readonly SESSION_TIMEOUT_MS = 300000; // 5 minutes
   private readonly CLEANUP_INTERVAL_MS = 60000; // 1 minute
+  private readonly agentCoreManager?: AgentCoreManager;
 
   // ============================================================================
   // CONSTRUCTOR
@@ -476,7 +479,9 @@ export class NovaSonicBidirectionalStreamClient {
           promptName: session.promptName,
           textOutputConfiguration: { mediaType: "text/plain" },
           audioOutputConfiguration: DefaultAudioOutputConfiguration,
-          toolConfiguration: { tools: [] },
+          toolConfiguration: { 
+            tools: this.agentCoreManager ? toolRegistry.getAllToolDefinitions() : []
+          },
         },
       }
     });
@@ -678,7 +683,10 @@ export class NovaSonicBidirectionalStreamClient {
       isPromptStartSent: false,
       isAudioContentStartSent: false,
       audioContentId: randomUUID(),
-      isWaitingForResponse: false
+      isWaitingForResponse: false,
+      realtimeMode: true, // Real-time mode enabled by default for bidirectional streaming
+      userSpeaking: false,
+      modelSpeaking: false
     };
   }
 
@@ -914,6 +922,13 @@ export class NovaSonicBidirectionalStreamClient {
     const activeSessions = Array.from(this.activeSessions.keys());
     for (const sessionId of activeSessions) {
       this.forceCloseSession(sessionId);
+    }
+
+    // Cleanup Agent Core if available
+    if (this.agentCoreManager) {
+      this.agentCoreManager.cleanup().catch(error => {
+        logger.warn('Error during Agent Core cleanup', { error: extractErrorDetails(error) });
+      });
     }
 
     logger.info('NovaSonicBidirectionalStreamClient shutdown complete');
@@ -1417,10 +1432,12 @@ export class NovaSonicBidirectionalStreamClient {
               } else if (evt.completionEnd) {
                 this.dispatchEvent(sessionId, 'completionEnd', evt.completionEnd);
               } else if (evt.toolUse) {
-                // Forward toolUse for observability / potential client-side handling
-                logger.info(`ToolUse event received for session ${sessionId}; forwarding to handlers.`);
+                // Handle tool use via Agent Core
+                logger.info(`ToolUse event received for session ${sessionId}: ${evt.toolUse.name}`);
                 evt.toolUse = this.normalizeForHandlers(evt.toolUse);
-                this.dispatchEvent(sessionId, 'toolUse', evt.toolUse);
+                
+                // Execute tool via Agent Core (always available)
+                this.executeToolViaAgentCore(sessionId, evt.toolUse as NovaToolUseEvent);
               } else if (evt.toolResult) {
                 // Note: toolResult is not documented in Nova output events, but keeping for compatibility
                 evt.toolResult = this.normalizeForHandlers(evt.toolResult);

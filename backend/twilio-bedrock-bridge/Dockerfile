@@ -11,7 +11,7 @@ RUN npm ci --frozen-lockfile
 
 # Copy source code and config files
 COPY src/ ./src/
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 
 # Build the application
 RUN npm run build
