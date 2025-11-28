@@ -115,6 +115,12 @@ export class AudioBuffer {
     errors: 0
   };
 
+  /** Count of frames dropped due to timer delays (adaptive timing) */
+  private droppedFrames = 0;
+
+  /** Maximum number of frames the buffer can hold (for metrics) */
+  private maxFrames: number;
+
   /**
    * Creates a new AudioBuffer for managing consistent frame delivery.
    * 
@@ -137,6 +143,9 @@ export class AudioBuffer {
     const maxBufferMs = options.maxBufferMs ?? 200;
     // Fix: μ-law is 1 byte per sample at 8kHz, so 8000 bytes = 1 second
     this.maxBufferSize = Math.floor((8000 * maxBufferMs) / 1000); // Convert ms to bytes at 8kHz
+
+    // Calculate maximum number of frames for metrics
+    this.maxFrames = Math.floor(this.maxBufferSize / this.frameSize);
 
     // Allocate circular buffer with extra headroom for safety
     // Make it 4x larger than maxBufferSize to handle burst scenarios and wrap-around safely
@@ -278,15 +287,46 @@ export class AudioBuffer {
       const actualInterval = now - lastTimerCall;
       lastTimerCall = now;
 
-      // Log if timer is significantly delayed
+      // Handle timer delays with adaptive frame skipping
       if (actualInterval > this.intervalMs + 5) {
+        const delay = actualInterval - this.intervalMs;
+
         logger.warn('Timer delay detected', {
           sessionId: this.sessionId,
           expectedInterval: this.intervalMs,
           actualInterval,
-          delay: actualInterval - this.intervalMs,
+          delay,
           bufferMs: Math.round((this.dataLength / 8000) * 1000)
         });
+
+        // Calculate how many frames we've missed due to the delay
+        const missedFrames = Math.floor(delay / this.intervalMs);
+
+        // If we're significantly behind (>2 frames) and have enough buffered data,
+        // skip frames to catch up and maintain audio sync
+        if (missedFrames > 2 && this.dataLength > this.frameSize * missedFrames) {
+          const framesToSkip = missedFrames - 1; // Keep one frame to send
+          const bytesToSkip = this.frameSize * framesToSkip;
+
+          this.advanceReadPosition(bytesToSkip);
+          this.droppedFrames += framesToSkip;
+
+          logger.info('Dropped frames to recover from timer delay', {
+            sessionId: this.sessionId,
+            missedFrames,
+            framesToSkip,
+            bytesSkipped: bytesToSkip,
+            remainingBufferMs: Math.round((this.dataLength / 8000) * 1000),
+            totalDroppedFrames: this.droppedFrames
+          });
+
+          // Report to quality analyzer as underrun (we're dropping old data to catch up)
+          audioQualityAnalyzer.reportBufferEvent(
+            this.sessionId,
+            'underrun',
+            framesToSkip / this.maxFrames
+          );
+        }
       }
 
       this.sendFrame();
@@ -742,13 +782,15 @@ export class AudioBuffer {
   }
 
   /**
-   * Gets send queue statistics for monitoring
+   * Gets send queue and buffer statistics for monitoring
    */
   public getSendStats() {
     return {
       ...this.sendStats,
       queueSize: this.sendQueue.length,
-      processing: this.processingQueue
+      processing: this.processingQueue,
+      droppedFrames: this.droppedFrames,
+      droppedFramesPercent: this.seq > 0 ? ((this.droppedFrames / this.seq) * 100).toFixed(2) : '0.00'
     };
   }
 

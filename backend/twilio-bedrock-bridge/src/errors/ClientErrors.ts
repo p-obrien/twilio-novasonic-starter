@@ -406,6 +406,69 @@ export class BedrockServiceError extends BedrockClientError {
 }
 
 /**
+ * Error thrown when circuit breaker is OPEN
+ */
+export class CircuitBreakerOpenError extends BedrockClientError {
+  readonly code = 'CIRCUIT_BREAKER_OPEN';
+  readonly severity = ErrorSeverity.HIGH;
+  readonly retryable = true; // Client can retry later
+
+  constructor(
+    message: string,
+    context: ErrorContext,
+    public readonly nextAttemptTime: number,
+    cause?: Error
+  ) {
+    super(message, context, cause);
+  }
+
+  /**
+   * Create a circuit breaker open error
+   */
+  static create(
+    circuitName: string,
+    nextAttemptTime: number,
+    operation: string,
+    sessionId?: string,
+    correlationId?: string,
+    metadata: Record<string, unknown> = {},
+    cause?: Error
+  ): CircuitBreakerOpenError {
+    const context: ErrorContext = {
+      correlationId,
+      sessionId,
+      operation,
+      timestamp: Date.now(),
+      metadata: {
+        ...metadata,
+        circuitName,
+        nextAttemptTime,
+        retryAfterMs: Math.max(0, nextAttemptTime - Date.now())
+      }
+    };
+
+    const retryAfterSeconds = Math.ceil((nextAttemptTime - Date.now()) / 1000);
+    const message = `Circuit breaker '${circuitName}' is OPEN. Service temporarily unavailable. Retry after ${retryAfterSeconds}s`;
+
+    return new CircuitBreakerOpenError(message, context, nextAttemptTime, cause);
+  }
+
+  /**
+   * Get time until next retry attempt
+   */
+  getRetryAfterMs(): number {
+    return Math.max(0, this.nextAttemptTime - Date.now());
+  }
+
+  /**
+   * Get time until next retry attempt in seconds
+   */
+  getRetryAfterSeconds(): number {
+    return Math.ceil(this.getRetryAfterMs() / 1000);
+  }
+}
+
+/**
  * Utility function to create appropriate error from AWS service errors
  */
 export function createBedrockServiceError(
@@ -416,7 +479,7 @@ export function createBedrockServiceError(
 ): BedrockServiceError {
   const errorType = getErrorProperty(error, 'name') || getErrorProperty(error, 'code') || 'UnknownError';
   const message = getErrorProperty(error, 'message') || 'Unknown Bedrock service error';
-  
+
   const metadata: Record<string, unknown> = {};
   if (hasProperty(error, 'statusCode')) {
     metadata.statusCode = error.statusCode;
@@ -424,7 +487,7 @@ export function createBedrockServiceError(
   if (hasProperty(error, 'retryable')) {
     metadata.retryable = error.retryable;
   }
-  
+
   return BedrockServiceError.create(
     message,
     errorType,
@@ -542,7 +605,7 @@ export class IntegrationError extends BedrockClientError {
   
   constructor(
     message: string,
-    public readonly component: 'knowledge' | 'agent' | 'orchestrator' | 'classifier',
+    public readonly component: 'knowledge' | 'agent' | 'classifier',
     public readonly metadata: Record<string, any> = {},
     sessionId?: string,
     cause?: Error
@@ -611,24 +674,6 @@ export class IntegrationError extends BedrockClientError {
       message,
       'agent',
       { agentId, agentAliasId },
-      sessionId,
-      cause
-    );
-  }
-
-  /**
-   * Create an orchestrator integration error
-   */
-  static orchestrator(
-    message: string,
-    routingDecision?: string,
-    sessionId?: string,
-    cause?: Error
-  ): IntegrationError {
-    return new IntegrationError(
-      message,
-      'orchestrator',
-      { routingDecision },
       sessionId,
       cause
     );

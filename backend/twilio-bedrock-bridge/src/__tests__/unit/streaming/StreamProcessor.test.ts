@@ -7,7 +7,6 @@
 
 import { StreamProcessor } from '../../../streaming/StreamProcessor';
 import { EventDispatcher } from '../../../events/EventDispatcher';
-
 import { Subject } from 'rxjs';
 import { SessionData } from '../../../session';
 

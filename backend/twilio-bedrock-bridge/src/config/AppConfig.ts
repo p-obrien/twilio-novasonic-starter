@@ -1,15 +1,25 @@
 /**
- * Centralized application configuration
- * Validates and provides typed access to all environment variables and settings
- * 
- * @deprecated Use ConfigurationManager from './ConfigurationManager' instead
- * This file is maintained for backward compatibility
+ * Legacy AppConfig module - DEPRECATED
+ *
+ * @deprecated This file is deprecated. Use ConfigurationManager from './ConfigurationManager' instead.
+ *
+ * This file previously contained the LegacyConfigManager which has been removed.
+ * All code should now import and use configManager from './ConfigurationManager' directly.
+ *
+ * Migration guide:
+ * - Old: import { config } from './config/AppConfig';
+ * - New: import { configManager } from './config/ConfigurationManager';
+ *
+ * This file is kept temporarily to provide the AppConfig type definition for backward compatibility.
  */
 
-import { configManager } from './ConfigurationManager';
 import { InferenceConfig } from '../types/SharedTypes';
 import { IntegrationConfig } from '../types/IntegrationTypes';
 
+/**
+ * Application configuration interface
+ * @deprecated Use ConfigurationManager interface instead
+ */
 export interface AppConfig {
   server: {
     port: number;
@@ -34,79 +44,11 @@ export interface AppConfig {
 }
 
 /**
- * @deprecated Use ConfigurationManager instead
- * Legacy configuration manager for backward compatibility
+ * @deprecated Use configManager from './ConfigurationManager' instead
  */
-class LegacyConfigManager {
-  private static instance: LegacyConfigManager;
+export const config = undefined as any;
 
-  private constructor() {
-    // Initialize the configuration manager if not already initialized
-    if (!configManager.initialized) {
-      try {
-        // Use synchronous initialization for backward compatibility
-        configManager.initializeSync();
-      } catch (error) {
-        console.warn('Failed to initialize configuration manager, using defaults:', error);
-      }
-    }
-
-    // Validate configuration on initialization
-    const validation = configManager.validate();
-    if (!validation.isValid) {
-      console.warn(`Configuration validation failed: ${validation.errors.join(', ')}`);
-      // Don't throw in legacy mode for backward compatibility
-    }
-
-    // Log configuration loaded message for compatibility
-    console.log('Bedrock configuration loaded:', {
-      bedrockRegion: configManager.bedrock?.region || 'us-east-1',
-      bedrockModelId: configManager.bedrock?.modelId || 'amazon.nova-sonic-v1:0',
-      awsRegion: configManager.aws?.region || 'us-east-1'
-    });
-  }
-
-  public static getInstance(): LegacyConfigManager {
-    if (!LegacyConfigManager.instance) {
-      LegacyConfigManager.instance = new LegacyConfigManager();
-    }
-    return LegacyConfigManager.instance;
-  }
-
-  public getConfig(): AppConfig {
-    return {
-      server: {
-        port: configManager.server.port,
-        host: configManager.server.host,
-      },
-      aws: {
-        region: configManager.aws.region,
-        profileName: configManager.aws.profileName,
-      },
-      bedrock: {
-        region: configManager.bedrock.region,
-        modelId: configManager.bedrock.modelId,
-      },
-      twilio: {
-        authToken: configManager.twilio.authToken,
-      },
-      logging: {
-        level: configManager.logging.level,
-      },
-      inference: configManager.inference,
-      integration: configManager.integration,
-    };
-  }
-
-  public get server() { return configManager.server; }
-  public get aws() { return configManager.aws; }
-  public get bedrock() { return configManager.bedrock; }
-  public get twilio() { return configManager.twilio; }
-  public get logging() { return configManager.logging; }
-  public get inference() { return configManager.inference; }
-  public get audio() { return configManager.audio; }
-  public get integration() { return configManager.integration; }
-}
-
-export const config = LegacyConfigManager.getInstance();
+/**
+ * @deprecated Use configManager from './ConfigurationManager' instead
+ */
 export default config;
