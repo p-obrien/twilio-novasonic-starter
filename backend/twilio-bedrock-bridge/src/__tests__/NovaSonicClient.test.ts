@@ -53,7 +53,7 @@ jest.mock('../agents/ToolRegistry', () => ({
 }));
 
 import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../client/';
-import { StreamSession } from '../session/StreamSession';
+import { UnifiedStreamSession } from '../session/UnifiedStreamSession';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { Subject } from 'rxjs';
 
@@ -122,15 +122,15 @@ describe('NovaSonicBidirectionalStreamClient', () => {
       it('should create new stream session', () => {
         const session = client.createStreamSession('test-session-1');
 
-        expect(session).toBeInstanceOf(StreamSession);
-        expect(session.getSessionId()).toBe('test-session-1');
+        expect(session).toBeInstanceOf(UnifiedStreamSession);
+        expect(session.sessionId).toBe('test-session-1');
         expect(client.isSessionActive('test-session-1')).toBe(true);
       });
 
       it('should generate UUID if no session ID provided', () => {
         const session = client.createStreamSession();
 
-        expect(session.getSessionId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+        expect(session.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
       });
 
       it('should throw error if session already exists', () => {

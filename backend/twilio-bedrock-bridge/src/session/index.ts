@@ -37,4 +37,5 @@ export {
 } from './ResourceAwareSession';
 
 // Export legacy components for backward compatibility
-export { StreamSession } from './StreamSession';
+// Note: StreamSession removed in orchestrator-removal, use UnifiedStreamSession instead
+export { UnifiedStreamSession as StreamSession } from './UnifiedStreamSession';
