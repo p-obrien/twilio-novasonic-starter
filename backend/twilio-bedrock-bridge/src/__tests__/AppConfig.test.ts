@@ -2,7 +2,7 @@
  * Tests for AppConfig
  */
 
-import { configManager } from '../../../config/ConfigurationManager'';
+import { configManager } from '../config/ConfigurationManager';
 
 describe('AppConfig', () => {
   const originalEnv = process.env;

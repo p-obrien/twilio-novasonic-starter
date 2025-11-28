@@ -78,7 +78,8 @@ const bedrockClient = new NovaSonicBidirectionalStreamClient({
  *
  * @param server - HTTP server to attach WebSocket server to
  */
-export function initWebsocketServer(server: http.Server): void {
+export function initWebsocketServer(server: http.Server, dependencies?: any): void {
+  // Ignore dependencies parameter for now - keeping simple orchestrator-removal approach
   const wss = new WebSocketServer({
     server,
     path: '/media',

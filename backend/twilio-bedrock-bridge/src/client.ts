@@ -1436,8 +1436,13 @@ export class NovaSonicBidirectionalStreamClient {
                 logger.info(`ToolUse event received for session ${sessionId}: ${evt.toolUse.name}`);
                 evt.toolUse = this.normalizeForHandlers(evt.toolUse);
                 
-                // Execute tool via Agent Core (always available)
-                this.executeToolViaAgentCore(sessionId, evt.toolUse as NovaToolUseEvent);
+                // TODO: Execute tool via Agent Core (removed orchestrator for now)
+                logger.debug('Tool execution skipped - orchestrator removed', {
+                  sessionId,
+                  toolName: evt.toolUse.name,
+                  toolUseId: evt.toolUse.toolUseId
+                });
+                // this.executeToolViaAgentCore(sessionId, evt.toolUse as NovaToolUseEvent);
               } else if (evt.toolResult) {
                 // Note: toolResult is not documented in Nova output events, but keeping for compatibility
                 evt.toolResult = this.normalizeForHandlers(evt.toolResult);

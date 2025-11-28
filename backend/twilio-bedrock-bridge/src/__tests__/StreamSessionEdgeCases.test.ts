@@ -7,7 +7,7 @@
  * which minimizes buffering and uses immediate audio streaming.
  */
 
-import { StreamSession, StreamClientInterface } from '../session/StreamSession';
+import { UnifiedStreamSession, StreamClientInterface } from '../session/UnifiedStreamSession';
 import {
   SessionError,
   AudioProcessingError,
