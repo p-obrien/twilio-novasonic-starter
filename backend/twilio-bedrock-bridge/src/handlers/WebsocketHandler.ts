@@ -57,7 +57,8 @@ export const wsIdToSessionId: Map<string, string> = new Map();
 
 // Enhanced Bedrock client with orchestrator capabilities
 // Uses default AWS credential chain (IAM roles in ECS, profiles locally)
-const bedrockClient = new NovaSonicBidirectionalStreamClient({
+// Exported for graceful shutdown in server.ts
+export const bedrockClient = new NovaSonicBidirectionalStreamClient({
   clientConfig: {
     region: configManager.bedrock?.region || 'us-east-1'
     // credentials will use default credential chain

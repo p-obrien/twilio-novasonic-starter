@@ -42,6 +42,125 @@ import logger from '../observability/logger';
 import { AudioSampleRates, AudioProcessing } from '../utils/constants';
 
 /**
+ * Performance profiling configuration
+ */
+const ENABLE_PROFILING = process.env.AUDIO_PROFILING === 'true';
+
+/**
+ * Performance profiling utility for measuring function execution time
+ */
+class AudioPerformanceProfiler {
+  private measurements: Map<string, { count: number; totalMs: number; maxMs: number }> = new Map();
+
+  /**
+   * Measures the execution time of a function
+   */
+  public measure<T>(label: string, fn: () => T): T {
+    if (!ENABLE_PROFILING) {
+      return fn();
+    }
+
+    const start = process.hrtime.bigint();
+    const result = fn();
+    const end = process.hrtime.bigint();
+    const durationMs = Number(end - start) / 1_000_000;
+
+    this.recordMeasurement(label, durationMs);
+    return result;
+  }
+
+  /**
+   * Measures the execution time of an async function
+   */
+  public async measureAsync<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    if (!ENABLE_PROFILING) {
+      return fn();
+    }
+
+    const start = process.hrtime.bigint();
+    const result = await fn();
+    const end = process.hrtime.bigint();
+    const durationMs = Number(end - start) / 1_000_000;
+
+    this.recordMeasurement(label, durationMs);
+    return result;
+  }
+
+  /**
+   * Records a measurement
+   */
+  private recordMeasurement(label: string, durationMs: number): void {
+    const existing = this.measurements.get(label);
+    if (existing) {
+      existing.count++;
+      existing.totalMs += durationMs;
+      existing.maxMs = Math.max(existing.maxMs, durationMs);
+    } else {
+      this.measurements.set(label, { count: 1, totalMs: durationMs, maxMs: durationMs });
+    }
+
+    // Log if execution took longer than 2ms (potential blocking)
+    if (durationMs > 2) {
+      logger.warn('Audio processing operation took longer than 2ms', {
+        operation: label,
+        durationMs: durationMs.toFixed(3)
+      });
+    }
+  }
+
+  /**
+   * Gets performance statistics
+   */
+  public getStats(): Record<string, { count: number; avgMs: number; maxMs: number; totalMs: number }> {
+    const stats: Record<string, any> = {};
+    for (const [label, data] of this.measurements.entries()) {
+      stats[label] = {
+        count: data.count,
+        avgMs: data.totalMs / data.count,
+        maxMs: data.maxMs,
+        totalMs: data.totalMs
+      };
+    }
+    return stats;
+  }
+
+  /**
+   * Logs and resets statistics
+   */
+  public logAndReset(): void {
+    if (this.measurements.size === 0) {
+      return;
+    }
+
+    logger.info('Audio processing performance statistics', this.getStats());
+    this.measurements.clear();
+  }
+}
+
+/**
+ * Global profiler instance
+ */
+const profiler = new AudioPerformanceProfiler();
+
+/**
+ * Gets audio processing performance statistics.
+ * Enable profiling by setting AUDIO_PROFILING=true environment variable.
+ *
+ * @returns Performance statistics for all measured operations
+ */
+export function getAudioProfilingStats(): Record<string, { count: number; avgMs: number; maxMs: number; totalMs: number }> {
+  return profiler.getStats();
+}
+
+/**
+ * Logs and resets audio processing performance statistics.
+ * Enable profiling by setting AUDIO_PROFILING=true environment variable.
+ */
+export function logAndResetAudioProfilingStats(): void {
+  profiler.logAndReset();
+}
+
+/**
  * Managed buffer wrapper that automatically releases buffers back to pool
  */
 export class ManagedBuffer {
@@ -384,18 +503,20 @@ export function pcm16ToMuLawByte(sample: number): number {
  * @returns Buffer containing PCM16LE audio samples (little-endian)
  */
 export function muLawBufferToPcm16LE(muBuf: Buffer): Buffer {
-  const bufferPool = BufferPool.getInstance();
-  const out = bufferPool.acquire(muBuf.length * 2);
-  
-  // Create Int16Array view for efficient 16-bit writes
-  const outView = new Int16Array(out.buffer, out.byteOffset, muBuf.length);
-  
-  // Process samples using optimized lookup table
-  for (let i = 0; i < muBuf.length; i++) {
-    outView[i] = MU_LAW_DECODE_TABLE[muBuf[i]];
-  }
-  
-  return out;
+  return profiler.measure('muLawBufferToPcm16LE', () => {
+    const bufferPool = BufferPool.getInstance();
+    const out = bufferPool.acquire(muBuf.length * 2);
+
+    // Create Int16Array view for efficient 16-bit writes
+    const outView = new Int16Array(out.buffer, out.byteOffset, muBuf.length);
+
+    // Process samples using optimized lookup table
+    for (let i = 0; i < muBuf.length; i++) {
+      outView[i] = MU_LAW_DECODE_TABLE[muBuf[i]];
+    }
+
+    return out;
+  });
 }
 
 /**
@@ -415,118 +536,121 @@ export function muLawBufferToPcm16LE(muBuf: Buffer): Buffer {
  * @returns Output PCM16LE buffer at 16kHz sample rate (2x size)
  */
 export function upsample8kTo16k(pcm16leBuf: Buffer): Buffer {
-  const inputSamples = pcm16leBuf.length / 2;
-  const outputSamples = inputSamples * 2;
-  const bufferPool = BufferPool.getInstance();
-  const out = bufferPool.acquire(outputSamples * 2);
+  return profiler.measure('upsample8kTo16k', () => {
+    const inputSamples = pcm16leBuf.length / 2;
+    const outputSamples = inputSamples * 2;
+    const bufferPool = BufferPool.getInstance();
+    const out = bufferPool.acquire(outputSamples * 2);
 
-  // Create typed array views for efficient access
-  const inView = new Int16Array(pcm16leBuf.buffer, pcm16leBuf.byteOffset, inputSamples);
-  const outView = new Int16Array(out.buffer, out.byteOffset, outputSamples);
+    // Create typed array views for efficient access
+    const inView = new Int16Array(pcm16leBuf.buffer, pcm16leBuf.byteOffset, inputSamples);
+    const outView = new Int16Array(out.buffer, out.byteOffset, outputSamples);
 
-  // Optimized upsampling with 3-point interpolation
-  for (let i = 0; i < inputSamples; i++) {
-    const outIdx = i * 2;
-    
-    // Copy original sample
-    outView[outIdx] = inView[i];
+    // Optimized upsampling with 3-point interpolation
+    for (let i = 0; i < inputSamples; i++) {
+      const outIdx = i * 2;
 
-    // Calculate interpolated sample using 3-point filter
-    if (i < inputSamples - 1) {
-      const prev = i > 0 ? inView[i - 1] : inView[i];
-      const curr = inView[i];
-      const next = inView[i + 1];
-      
-      // 3-point interpolation with anti-aliasing characteristics
-      // Coefficients: [-0.0625, 0.5625, 0.5625, -0.0625] for better quality
-      const interpolated = Math.round(
-        -0.0625 * prev + 0.5625 * curr + 0.5625 * next
-      );
-      
-      outView[outIdx + 1] = Math.max(-32768, Math.min(32767, interpolated));
-    } else {
-      // Last sample - just duplicate
-      outView[outIdx + 1] = inView[i];
+      // Copy original sample
+      outView[outIdx] = inView[i];
+
+      // Calculate interpolated sample using 3-point filter
+      if (i < inputSamples - 1) {
+        const prev = i > 0 ? inView[i - 1] : inView[i];
+        const curr = inView[i];
+        const next = inView[i + 1];
+
+        // 3-point interpolation with anti-aliasing characteristics
+        // Coefficients: [-0.0625, 0.5625, 0.5625, -0.0625] for better quality
+        const interpolated = Math.round(
+          -0.0625 * prev + 0.5625 * curr + 0.5625 * next
+        );
+
+        outView[outIdx + 1] = Math.max(-32768, Math.min(32767, interpolated));
+      } else {
+        // Last sample - just duplicate
+        outView[outIdx + 1] = inView[i];
+      }
     }
-  }
 
-  return out;
+    return out;
+  });
 }
-
 
 
 /**
  * Optimized downsampling with anti-aliasing using vectorized operations and improved filtering.
- * 
+ *
  * This function uses typed arrays for efficient memory access and implements
  * a high-quality anti-aliasing filter to prevent artifacts during downsampling.
  * The algorithm uses a 5-tap FIR filter for better frequency response.
- * 
+ *
  * Performance optimizations:
  * - Uses Int16Array views for efficient memory access
  * - Pre-computed filter coefficients
  * - Optimized loop structure
  * - Reduced memory allocations
- * 
+ *
  * @param srcBuf - Source PCM16LE buffer at original sample rate
  * @param srcRate - Source sample rate in Hz
  * @param targetRate - Target sample rate in Hz
  * @returns Downsampled PCM16LE buffer at target sample rate
  */
 export function downsampleWithAntiAliasing(srcBuf: Buffer, srcRate: number, targetRate: number): Buffer {
-  const inputSamples = Math.floor(srcBuf.length / 2);
-  const ratio = srcRate / targetRate;
-  const outputSamples = Math.floor(inputSamples / ratio);
-  const bufferPool = BufferPool.getInstance();
-  const out = bufferPool.acquire(outputSamples * 2);
+  return profiler.measure('downsampleWithAntiAliasing', () => {
+    const inputSamples = Math.floor(srcBuf.length / 2);
+    const ratio = srcRate / targetRate;
+    const outputSamples = Math.floor(inputSamples / ratio);
+    const bufferPool = BufferPool.getInstance();
+    const out = bufferPool.acquire(outputSamples * 2);
 
-  // Create typed array views for efficient access
-  const inView = new Int16Array(srcBuf.buffer, srcBuf.byteOffset, inputSamples);
-  const outView = new Int16Array(out.buffer, out.byteOffset, outputSamples);
+    // Create typed array views for efficient access
+    const inView = new Int16Array(srcBuf.buffer, srcBuf.byteOffset, inputSamples);
+    const outView = new Int16Array(out.buffer, out.byteOffset, outputSamples);
 
-  // Debug logging for downsampling
-  const inputDurationMs = Math.round((inputSamples / srcRate) * 1000);
-  const outputDurationMs = Math.round((outputSamples / targetRate) * 1000);
+    // Debug logging for downsampling
+    const inputDurationMs = Math.round((inputSamples / srcRate) * 1000);
+    const outputDurationMs = Math.round((outputSamples / targetRate) * 1000);
 
-  logger.debug('Optimized downsampling audio', {
-    inputSamples,
-    srcRate,
-    targetRate,
-    ratio,
-    outputSamples,
-    inputDurationMs,
-    outputDurationMs,
-    durationMatch: inputDurationMs === outputDurationMs
-  });
+    logger.debug('Optimized downsampling audio', {
+      inputSamples,
+      srcRate,
+      targetRate,
+      ratio,
+      outputSamples,
+      inputDurationMs,
+      outputDurationMs,
+      durationMatch: inputDurationMs === outputDurationMs
+    });
 
-  // 5-tap anti-aliasing filter coefficients (Hamming window, cutoff at Nyquist/2)
-  const filterCoeffs = [-0.0234, 0.1563, 0.7344, 0.1563, -0.0234];
-  const filterRadius = 2;
+    // 5-tap anti-aliasing filter coefficients (Hamming window, cutoff at Nyquist/2)
+    const filterCoeffs = [-0.0234, 0.1563, 0.7344, 0.1563, -0.0234];
+    const filterRadius = 2;
 
-  // Optimized downsampling with anti-aliasing filter
-  for (let outIdx = 0; outIdx < outputSamples; outIdx++) {
-    const srcIdx = outIdx * ratio;
-    const centerIdx = Math.round(srcIdx);
-    
-    let filteredSample = 0;
-    let coeffSum = 0;
+    // Optimized downsampling with anti-aliasing filter
+    for (let outIdx = 0; outIdx < outputSamples; outIdx++) {
+      const srcIdx = outIdx * ratio;
+      const centerIdx = Math.round(srcIdx);
 
-    // Apply 5-tap filter around the center sample
-    for (let filterIdx = 0; filterIdx < filterCoeffs.length; filterIdx++) {
-      const sampleIdx = centerIdx - filterRadius + filterIdx;
-      
-      if (sampleIdx >= 0 && sampleIdx < inputSamples) {
-        filteredSample += inView[sampleIdx] * filterCoeffs[filterIdx];
-        coeffSum += filterCoeffs[filterIdx];
+      let filteredSample = 0;
+      let coeffSum = 0;
+
+      // Apply 5-tap filter around the center sample
+      for (let filterIdx = 0; filterIdx < filterCoeffs.length; filterIdx++) {
+        const sampleIdx = centerIdx - filterRadius + filterIdx;
+
+        if (sampleIdx >= 0 && sampleIdx < inputSamples) {
+          filteredSample += inView[sampleIdx] * filterCoeffs[filterIdx];
+          coeffSum += filterCoeffs[filterIdx];
+        }
       }
+
+      // Normalize by coefficient sum and clamp to 16-bit range
+      const normalizedSample = coeffSum > 0 ? filteredSample / coeffSum : 0;
+      outView[outIdx] = Math.max(-32768, Math.min(32767, Math.round(normalizedSample)));
     }
 
-    // Normalize by coefficient sum and clamp to 16-bit range
-    const normalizedSample = coeffSum > 0 ? filteredSample / coeffSum : 0;
-    outView[outIdx] = Math.max(-32768, Math.min(32767, Math.round(normalizedSample)));
-  }
-
-  return out;
+    return out;
+  });
 }
 
 /**
@@ -543,21 +667,23 @@ export function downsampleWithAntiAliasing(srcBuf: Buffer, srcRate: number, targ
  * @returns Buffer containing μ-law encoded audio samples
  */
 export function pcm16BufferToMuLaw(pcm16Buffer: Buffer): Buffer {
-  const totalSamples = Math.floor(pcm16Buffer.length / 2);
-  const bufferPool = BufferPool.getInstance();
-  const out = bufferPool.acquire(totalSamples);
-  
-  // Create Int16Array view for efficient 16-bit reads
-  const inView = new Int16Array(pcm16Buffer.buffer, pcm16Buffer.byteOffset, totalSamples);
-  
-  // Process samples using optimized lookup table
-  for (let i = 0; i < totalSamples; i++) {
-    // Convert signed sample to unsigned index for lookup table
-    const index = (inView[i] + 32768) & 0xffff;
-    out[i] = MU_LAW_ENCODE_TABLE[index];
-  }
+  return profiler.measure('pcm16BufferToMuLaw', () => {
+    const totalSamples = Math.floor(pcm16Buffer.length / 2);
+    const bufferPool = BufferPool.getInstance();
+    const out = bufferPool.acquire(totalSamples);
 
-  return out;
+    // Create Int16Array view for efficient 16-bit reads
+    const inView = new Int16Array(pcm16Buffer.buffer, pcm16Buffer.byteOffset, totalSamples);
+
+    // Process samples using optimized lookup table
+    for (let i = 0; i < totalSamples; i++) {
+      // Convert signed sample to unsigned index for lookup table
+      const index = (inView[i] + 32768) & 0xffff;
+      out[i] = MU_LAW_ENCODE_TABLE[index];
+    }
+
+    return out;
+  });
 }
 
 /**
@@ -685,9 +811,16 @@ function processMuLawInput(srcBuf: Buffer, srcRate: number): Buffer {
     return Buffer.from(srcBuf);
   } else {
     // Resample μ-law: decode → resample → re-encode
+    const bufferPool = BufferPool.getInstance();
     const pcmFromMu = muLawBufferToPcm16LE(srcBuf);
     const downsampledPcm = downsampleWithAntiAliasing(pcmFromMu, srcRate, AudioSampleRates.TWILIO_MULAW);
-    return pcm16BufferToMuLaw(downsampledPcm);
+    const result = pcm16BufferToMuLaw(downsampledPcm);
+
+    // Release intermediate buffers to prevent memory leaks
+    bufferPool.release(pcmFromMu);
+    bufferPool.release(downsampledPcm);
+
+    return result;
   }
 }
 
@@ -701,8 +834,14 @@ function processPcmInput(srcBuf: Buffer, srcRate: number): Buffer {
   }
 
   // Downsample to 8kHz and encode to μ-law for Twilio
+  const bufferPool = BufferPool.getInstance();
   const downsampledPcm = downsampleWithAntiAliasing(srcBuf, srcRate, AudioSampleRates.TWILIO_MULAW);
-  return pcm16BufferToMuLaw(downsampledPcm);
+  const result = pcm16BufferToMuLaw(downsampledPcm);
+
+  // Release intermediate buffer to prevent memory leaks
+  bufferPool.release(downsampledPcm);
+
+  return result;
 }
 
 /**
@@ -761,12 +900,16 @@ function analyzeAudioQuality(sessionId: string | undefined, muBuf: Buffer, callS
  */
 export function processTwilioAudioInput(muLawBuffer: Buffer, sessionId?: string, callSid?: string): Buffer {
   const startTime = Date.now();
-  
+  const bufferPool = BufferPool.getInstance();
+
   // Step 1: Convert μ-law to PCM16LE at original 8kHz rate
   const pcm16le_8k = muLawBufferToPcm16LE(muLawBuffer);
 
   // Step 2: Upsample from 8kHz to 16kHz with anti-aliasing
   let pcm16le_16k = upsample8kTo16k(pcm16le_8k);
+
+  // Release intermediate buffer
+  bufferPool.release(pcm16le_8k);
 
   // Step 3: Apply padding for small chunks to ensure optimal processing
   // Bedrock models perform better with minimum chunk sizes
@@ -776,7 +919,11 @@ export function processTwilioAudioInput(muLawBuffer: Buffer, sessionId?: string,
   if (currentSamples < minSamples) {
     const paddingBytes = (minSamples - currentSamples) * 2;
     const padding = Buffer.alloc(paddingBytes, 0); // Silent padding
-    pcm16le_16k = Buffer.concat([pcm16le_16k, padding]);
+    const paddedBuffer = Buffer.concat([pcm16le_16k, padding]);
+
+    // Release the old buffer and use the padded one
+    bufferPool.release(pcm16le_16k);
+    pcm16le_16k = paddedBuffer;
   }
 
   // Step 4: Analyze audio quality if session info is available

@@ -135,4 +135,26 @@ export class EventDispatcher {
   registerGenericEventHandler(session: SessionData, handler: GenericEventHandler): void {
     session.responseHandlers.set('any', handler as EventHandler<unknown>);
   }
+
+  /**
+   * Removes a specific event handler from a session
+   */
+  removeEventHandler(session: SessionData, eventType: string): boolean {
+    return session.responseHandlers.delete(eventType);
+  }
+
+  /**
+   * Clears all event handlers for a session to prevent memory leaks
+   */
+  clearAllHandlers(session: SessionData): void {
+    session.responseHandlers.clear();
+    logger.debug('Cleared all event handlers for session');
+  }
+
+  /**
+   * Gets the number of registered handlers for a session
+   */
+  getHandlerCount(session: SessionData): number {
+    return session.responseHandlers.size;
+  }
 }

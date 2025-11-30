@@ -113,6 +113,11 @@ const gracefulShutdown = async (signal: string) => {
     // Close HTTP server
     await new Promise(resolve => server.close(resolve));
 
+    // Shutdown Bedrock client to clean up all sessions
+    const { bedrockClient } = await import('./handlers/WebsocketHandler');
+    await bedrockClient.shutdown();
+    logger.info('Bedrock client shut down');
+
     // Shutdown observability resources
     const { bedrockObservability } = await import('./observability/bedrockObservability');
     const { WebSocketMetrics } = await import('./observability/websocketMetrics');

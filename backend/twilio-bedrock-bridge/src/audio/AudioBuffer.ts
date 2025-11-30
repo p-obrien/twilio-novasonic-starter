@@ -105,7 +105,7 @@ export class AudioBuffer {
   private processingQueue = false;
 
   /** Maximum queue size before dropping frames */
-  private maxQueueSize = 10;
+  private maxQueueSize = 25; // Increased from 10 to handle 500ms of network jitter
 
   /** Send queue processing statistics */
   private sendStats = {
@@ -373,18 +373,19 @@ export class AudioBuffer {
       this.seq += 1;
       this.ws._twilioOutSeq = this.seq;
 
-      // Pre-serialize the message (move JSON work off critical path)
-      const mediaMessage = {
-        event: 'media',
-        streamSid: this.ws.twilioStreamSid,
-        sequenceNumber: String(this.seq),
-        media: {
-          payload: frameData.toString('base64') // Convert binary audio to base64
-        }
-      };
+      // Build JSON message using string concatenation to avoid JSON.stringify overhead
+      // This eliminates JSON operations from the timer callback hot path
+      const base64Payload = frameData.toString('base64');
+      const streamSidStr = this.ws.twilioStreamSid || '';
+      const seqStr = String(this.seq);
+
+      // Format: {"event":"media","streamSid":"...","sequenceNumber":"...","media":{"payload":"..."}}
+      const mediaMessage = '{"event":"media","streamSid":"' + streamSidStr +
+                          '","sequenceNumber":"' + seqStr +
+                          '","media":{"payload":"' + base64Payload + '"}}';
 
       // Queue the frame for async sending
-      this.queueFrameForSend(JSON.stringify(mediaMessage), this.seq);
+      this.queueFrameForSend(mediaMessage, this.seq);
 
       logger.debug('Prepared audio frame for send queue', {
         sessionId: this.sessionId,
@@ -632,17 +633,17 @@ export class AudioBuffer {
       this.seq += 1;
       this.ws._twilioOutSeq = this.seq;
 
-      const mediaMessage = {
-        event: 'media',
-        streamSid: this.ws.twilioStreamSid,
-        sequenceNumber: String(this.seq),
-        media: {
-          payload: paddedFrame.toString('base64')
-        }
-      };
+      // Build JSON message using string concatenation to avoid JSON.stringify
+      const base64Payload = paddedFrame.toString('base64');
+      const streamSidStr = this.ws.twilioStreamSid || '';
+      const seqStr = String(this.seq);
+
+      const mediaMessage = '{"event":"media","streamSid":"' + streamSidStr +
+                          '","sequenceNumber":"' + seqStr +
+                          '","media":{"payload":"' + base64Payload + '"}}';
 
       // Queue the final padded frame
-      this.queueFrameForSend(JSON.stringify(mediaMessage), this.seq);
+      this.queueFrameForSend(mediaMessage, this.seq);
 
       logger.debug('Queued final padded frame', {
         sessionId: this.sessionId,
@@ -674,17 +675,16 @@ export class AudioBuffer {
       this.seq += 1;
       this.ws._twilioOutSeq = this.seq;
 
-      // Send directly without queueing
-      const mediaMessage = {
-        event: 'media',
-        streamSid: this.ws.twilioStreamSid,
-        sequenceNumber: String(this.seq),
-        media: {
-          payload: frameData.toString('base64')
-        }
-      };
+      // Build JSON message using string concatenation to avoid JSON.stringify
+      const base64Payload = frameData.toString('base64');
+      const streamSidStr = this.ws.twilioStreamSid || '';
+      const seqStr = String(this.seq);
 
-      this.ws.send(JSON.stringify(mediaMessage));
+      const mediaMessage = '{"event":"media","streamSid":"' + streamSidStr +
+                          '","sequenceNumber":"' + seqStr +
+                          '","media":{"payload":"' + base64Payload + '"}}';
+
+      this.ws.send(mediaMessage);
     }
 
     // Handle any partial frame by padding with silence
@@ -702,16 +702,16 @@ export class AudioBuffer {
       this.seq += 1;
       this.ws._twilioOutSeq = this.seq;
 
-      const mediaMessage = {
-        event: 'media',
-        streamSid: this.ws.twilioStreamSid,
-        sequenceNumber: String(this.seq),
-        media: {
-          payload: paddedFrame.toString('base64')
-        }
-      };
+      // Build JSON message using string concatenation to avoid JSON.stringify
+      const base64Payload = paddedFrame.toString('base64');
+      const streamSidStr = this.ws.twilioStreamSid || '';
+      const seqStr = String(this.seq);
 
-      this.ws.send(JSON.stringify(mediaMessage));
+      const mediaMessage = '{"event":"media","streamSid":"' + streamSidStr +
+                          '","sequenceNumber":"' + seqStr +
+                          '","media":{"payload":"' + base64Payload + '"}}';
+
+      this.ws.send(mediaMessage);
 
       logger.debug('Sent final padded frame synchronously', {
         sessionId: this.sessionId,
@@ -750,17 +750,18 @@ export class AudioBuffer {
     try {
       // Only send mark if WebSocket is open and has a valid stream ID
       if (this.ws && this.ws.readyState === 1 && this.ws.twilioStreamSid) {
-        const markMsg = {
-          event: 'mark',
-          streamSid: this.ws.twilioStreamSid,
-          mark: { name: `bedrock_out_${Date.now()}` } // Unique mark name with timestamp
-        };
+        const markName = `bedrock_out_${Date.now()}`;
+        const streamSidStr = this.ws.twilioStreamSid;
 
-        this.ws.send(JSON.stringify(markMsg));
+        // Build JSON using string concatenation to avoid JSON.stringify
+        const markMsg = '{"event":"mark","streamSid":"' + streamSidStr +
+                       '","mark":{"name":"' + markName + '"}}';
+
+        this.ws.send(markMsg);
 
         logger.debug('Sent completion mark', {
           sessionId: this.sessionId,
-          markName: markMsg.mark.name
+          markName: markName
         });
       }
     } catch (err) {

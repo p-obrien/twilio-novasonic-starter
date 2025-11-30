@@ -112,30 +112,32 @@ export function streamAudioFrames(
   // This optimization significantly reduces CPU usage during transmission
   const totalFrames = Math.ceil(muBuf.length / frameSize);
   const framesB64: string[] = new Array(totalFrames);
-  const framesJson: string[] = new Array(totalFrames);
-  
-  // Process each frame: extract, pad if necessary, encode to base64, and pre-build JSON
+  const framesJsonTemplate: string[] = new Array(totalFrames);
+
+  // Pre-escape streamSid for JSON (only once, outside the loop)
+  const streamSidStr = ws.twilioStreamSid || '';
+
+  // Process each frame: extract, pad if necessary, encode to base64, and pre-build JSON template
   for (let i = 0; i < totalFrames; i++) {
     const off = i * frameSize;
     let frameData = muBuf.subarray(off, off + frameSize);
-    
+
     // Pad the final frame with μ-law silence (0xFF) if it's shorter than frameSize
     if (frameData.length < frameSize) {
       const padded = Buffer.alloc(frameSize, 0xFF); // μ-law silence value
       frameData.copy(padded, 0, 0, frameData.length);
       frameData = padded;
     }
-    
+
     // Pre-encode frame to base64 for JSON payload
     framesB64[i] = frameData.toString('base64');
-    
-    // Pre-build JSON message structure (sequence number filled at send time)
-    framesJson[i] = JSON.stringify({
-      event: 'media',
-      streamSid: ws.twilioStreamSid,
-      sequenceNumber: undefined, // Will be updated with actual sequence number
-      media: { payload: framesB64[i] }
-    });
+
+    // Pre-build JSON template with placeholder for sequence number
+    // Using string concatenation to avoid JSON operations in the timer callback
+    // Format: {"event":"media","streamSid":"...","sequenceNumber":"SEQ","media":{"payload":"..."}}
+    framesJsonTemplate[i] = '{"event":"media","streamSid":"' + streamSidStr +
+                            '","sequenceNumber":"SEQ","media":{"payload":"' +
+                            framesB64[i] + '"}}';
   }
 
   // Initialize transmission state tracking
@@ -192,11 +194,9 @@ export function streamAudioFrames(
       seq = seq + 1;
       ws._twilioOutSeq = seq;
 
-      // Inject sequence number into pre-built JSON message
-      // This approach minimizes JSON parsing overhead during transmission
-      const msgObj: any = JSON.parse(framesJson[frameIndex]);
-      msgObj.sequenceNumber = String(seq);
-      const payloadStr = JSON.stringify(msgObj);
+      // Inject sequence number into pre-built JSON template using simple string replacement
+      // This eliminates all JSON operations from the timer callback hot path
+      const payloadStr = framesJsonTemplate[frameIndex].replace('SEQ', String(seq));
 
       // Send frame asynchronously to maintain timer precision
       // Using fire-and-forget pattern with error callback for monitoring
@@ -252,21 +252,23 @@ export function streamAudioFrames(
 function sendCompletionMark(ws: WebSocketLike, sessionId: string): void {
   try {
     if (ws && ws.readyState === 1 && ws.twilioStreamSid) {
-      const markMsg = {
-        event: 'mark',
-        streamSid: ws.twilioStreamSid,
-        mark: { name: `bedrock_out_${Date.now()}` }
-      };
-      ws.send(JSON.stringify(markMsg));
-      logger.debug('Sent mark after Bedrock outbound audio', { 
-        client: sessionId, 
-        markName: markMsg.mark.name 
+      const markName = `bedrock_out_${Date.now()}`;
+      const streamSidStr = ws.twilioStreamSid;
+
+      // Build JSON using string concatenation to avoid JSON.stringify
+      const markMsg = '{"event":"mark","streamSid":"' + streamSidStr +
+                     '","mark":{"name":"' + markName + '"}}';
+
+      ws.send(markMsg);
+      logger.debug('Sent mark after Bedrock outbound audio', {
+        client: sessionId,
+        markName: markName
       });
     } else {
-      logger.debug('Skipping mark send: websocket not open or no twilioStreamSid', { 
-        sessionId, 
-        readyState: ws && ws.readyState, 
-        twilioStreamSid: ws.twilioStreamSid 
+      logger.debug('Skipping mark send: websocket not open or no twilioStreamSid', {
+        sessionId,
+        readyState: ws && ws.readyState,
+        twilioStreamSid: ws.twilioStreamSid
       });
     }
   } catch (markErr) {

@@ -174,6 +174,83 @@ export class NovaSonicBidirectionalStreamClient {
   }
 
   /**
+   * Get comprehensive memory statistics for monitoring and debugging
+   *
+   * Returns detailed information about:
+   * - Active session counts
+   * - Event handler counts
+   * - Queue sizes
+   * - Process memory usage
+   *
+   * @returns Memory and resource statistics
+   */
+  public getMemoryStats(): {
+    sessions: {
+      active: number;
+      stream: number;
+      cleanupInProgress: number;
+    };
+    handlers: {
+      total: number;
+      bySession: Map<string, number>;
+    };
+    queues: {
+      totalEvents: number;
+      bySession: Map<string, number>;
+    };
+    memory: {
+      heapUsed: number;
+      heapTotal: number;
+      rss: number;
+      external: number;
+    };
+  } {
+    // Count handlers across all sessions
+    let totalHandlers = 0;
+    const handlersBySession = new Map<string, number>();
+
+    // Count events across all sessions
+    let totalEvents = 0;
+    const eventsBySession = new Map<string, number>();
+
+    for (const [sessionId, session] of this.activeSessions) {
+      const handlerCount = session.responseHandlers.size;
+      const eventCount = session.queue.length;
+
+      totalHandlers += handlerCount;
+      handlersBySession.set(sessionId, handlerCount);
+
+      totalEvents += eventCount;
+      eventsBySession.set(sessionId, eventCount);
+    }
+
+    // Get process memory usage
+    const memUsage = process.memoryUsage();
+
+    return {
+      sessions: {
+        active: this.activeSessions.size,
+        stream: this.streamSessions.size,
+        cleanupInProgress: this.sessionCleanupInProgress.size
+      },
+      handlers: {
+        total: totalHandlers,
+        bySession: handlersBySession
+      },
+      queues: {
+        totalEvents,
+        bySession: eventsBySession
+      },
+      memory: {
+        heapUsed: memUsage.heapUsed,
+        heapTotal: memUsage.heapTotal,
+        rss: memUsage.rss,
+        external: memUsage.external
+      }
+    };
+  }
+
+  /**
    * Create a new streaming session
    */
   public createStreamSession(
@@ -817,26 +894,53 @@ export class NovaSonicBidirectionalStreamClient {
 
     // Clean up RxJS subjects to prevent memory leaks
     try {
+      // Signal close before completing to notify any listeners
       session.closeSignal.next();
       session.closeSignal.complete();
+
+      // Complete response subject to release all observers
       session.responseSubject.complete();
+
+      // Complete queue signal to release any waiting promises
       session.queueSignal.complete();
+
+      logger.debug(`RxJS subjects completed for session ${sessionId}`);
     } catch (e) {
       logger.warn(`Error cleaning up RxJS subjects for session ${sessionId}:`, e);
     }
 
-    // Clear event handlers map
+    // Clear event handlers map to prevent handler accumulation
+    const handlerCount = session.responseHandlers.size;
     session.responseHandlers.clear();
 
-    // Clear session queue to free memory
+    if (handlerCount > 0) {
+      logger.debug(`Cleared ${handlerCount} event handlers for session ${sessionId}`);
+    }
+
+    // Clear session queue to free memory immediately
+    const queueLength = session.queue.length;
     session.queue.length = 0;
+
+    if (queueLength > 0) {
+      logger.debug(`Cleared ${queueLength} queued events for session ${sessionId}`);
+    }
 
     // Remove from tracking maps
     this.activeSessions.delete(sessionId);
     this.sessionLastActivity.delete(sessionId);
-    this.streamSessions.delete(sessionId);
 
-    logger.info(`Session ${sessionId} cleaned up`);
+    // Clean up stream session if exists
+    const streamSession = this.streamSessions.get(sessionId);
+    if (streamSession) {
+      this.streamSessions.delete(sessionId);
+      logger.debug(`Removed stream session for ${sessionId}`);
+    }
+
+    logger.info(`Session ${sessionId} cleaned up successfully`, {
+      handlersCleared: handlerCount,
+      eventsCleared: queueLength,
+      hasStreamSession: !!streamSession
+    });
   }
 
   /**
@@ -904,34 +1008,88 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Cleanup method (alias for shutdown)
    */
-  public cleanup(): void {
-    this.shutdown();
+  public async cleanup(): Promise<void> {
+    await this.shutdown();
   }
 
   /**
    * Shutdown the client and clean up all resources
+   *
+   * This method performs comprehensive cleanup to prevent memory leaks:
+   * - Stops periodic cleanup timer
+   * - Closes all active sessions gracefully
+   * - Cleans up Agent Core manager
+   * - Clears all tracking maps
    */
-  public shutdown(): void {
-    // Stop periodic cleanup
+  public async shutdown(): Promise<void> {
+    logger.info('NovaSonicBidirectionalStreamClient shutdown initiated', {
+      activeSessions: this.activeSessions.size,
+      streamSessions: this.streamSessions.size
+    });
+
+    // Stop periodic cleanup timer to prevent new cleanup cycles
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
+      logger.debug('Periodic cleanup timer stopped');
     }
 
+    // Get snapshot of active sessions before cleanup
+    const activeSessionIds = Array.from(this.activeSessions.keys());
+    const cleanupResults = {
+      total: activeSessionIds.length,
+      successful: 0,
+      failed: 0
+    };
+
     // Force close all active sessions
-    const activeSessions = Array.from(this.activeSessions.keys());
-    for (const sessionId of activeSessions) {
-      this.forceCloseSession(sessionId);
+    for (const sessionId of activeSessionIds) {
+      try {
+        this.forceCloseSession(sessionId);
+        cleanupResults.successful++;
+      } catch (error) {
+        cleanupResults.failed++;
+        logger.error(`Failed to close session ${sessionId} during shutdown:`, {
+          error: extractErrorDetails(error)
+        });
+      }
     }
 
     // Cleanup Agent Core if available
     if (this.agentCoreManager) {
-      this.agentCoreManager.cleanup().catch(error => {
-        logger.warn('Error during Agent Core cleanup', { error: extractErrorDetails(error) });
-      });
+      try {
+        await this.agentCoreManager.cleanup();
+        logger.debug('Agent Core manager cleaned up');
+      } catch (error) {
+        logger.warn('Error during Agent Core cleanup', {
+          error: extractErrorDetails(error)
+        });
+      }
     }
 
-    logger.info('NovaSonicBidirectionalStreamClient shutdown complete');
+    // Final verification - clear any remaining entries
+    if (this.activeSessions.size > 0) {
+      logger.warn('Sessions remaining after shutdown, force clearing', {
+        remainingSessions: this.activeSessions.size
+      });
+      this.activeSessions.clear();
+    }
+
+    if (this.streamSessions.size > 0) {
+      logger.warn('Stream sessions remaining after shutdown, force clearing', {
+        remainingStreamSessions: this.streamSessions.size
+      });
+      this.streamSessions.clear();
+    }
+
+    // Clear all tracking maps
+    this.sessionLastActivity.clear();
+    this.sessionCleanupInProgress.clear();
+
+    logger.info('NovaSonicBidirectionalStreamClient shutdown complete', {
+      cleanupResults,
+      mapsCleared: true
+    });
   }
 
   /**
