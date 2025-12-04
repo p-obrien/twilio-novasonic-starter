@@ -345,3 +345,10 @@ variable "external_agent_arns" {
   type        = list(string)
   default     = []
 }
+
+# Conversation Configuration Variables
+variable "greeting_message" {
+  description = "Greeting message that Nova Sonic will speak when a call starts"
+  type        = string
+  default     = "Hello! How can I assist you today?"
+}

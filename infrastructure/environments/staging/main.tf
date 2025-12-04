@@ -204,6 +204,9 @@ module "ecs" {
   twilio_auth_token             = var.twilio_auth_token
   verify_twilio_signature       = var.verify_twilio_signature
   
+  # Conversation configuration
+  greeting_message              = var.greeting_message
+  
   # Knowledge Base and Agent configuration - use created resources or external ARNs
   knowledge_base_arns           = concat(
     var.create_knowledge_base ? [module.knowledge_base[0].knowledge_base_arn] : [],

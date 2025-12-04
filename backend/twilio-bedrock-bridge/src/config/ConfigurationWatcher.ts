@@ -241,8 +241,10 @@ export class ConfigurationWatcher extends EventEmitter {
       'CLOUDWATCH_FLUSH_INTERVAL_MS', 'MEMORY_THRESHOLD_MB',
       'EVENT_LOOP_LAG_THRESHOLD_MS', 'MAX_ACTIVE_SESSIONS',
       // Critical environment variables
-      'PORT', 'HOST', 'AWS_REGION', 'BEDROCK_REGION', 'BEDROCK_MODEL_ID',
+      'PORT', 'HOST', 'AWS_REGION', 'BEDROCK_REGION',
       'TWILIO_AUTH_TOKEN', 'NODE_ENV', 'OTEL_SERVICE_NAME',
+      // Conversation configuration
+      'GREETING_MESSAGE',
     ];
 
     for (const envVar of relevantEnvVars) {
@@ -385,10 +387,11 @@ export class ConfigurationWatcher extends EventEmitter {
       'HOST': 'server.host',
       'AWS_REGION': 'aws.region',
       'BEDROCK_REGION': 'bedrock.region',
-      'BEDROCK_MODEL_ID': 'bedrock.modelId',
       'TWILIO_AUTH_TOKEN': 'twilio.authToken',
       'NODE_ENV': 'environment.nodeEnv',
       'OTEL_SERVICE_NAME': 'environment.serviceName',
+      // Conversation mappings
+      'GREETING_MESSAGE': 'conversation.greetingMessage',
     };
 
     return envVarMappings[envVar];

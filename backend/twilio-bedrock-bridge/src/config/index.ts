@@ -48,6 +48,7 @@ export type {
   CloudWatchConfig,
   HealthCheckConfig,
   EnvironmentConfig,
+  ConversationConfig,
   ConfigSchema,
 } from './ConfigurationTypes';
 

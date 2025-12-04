@@ -176,7 +176,7 @@ export function createDefaultDependencies(): Required<WebSocketHandlerDependenci
       },
       bedrock: {
         region: require('../config/AppConfig').config.bedrock?.region || 'us-east-1',
-        modelId: require('../config/AppConfig').config.bedrock?.modelId || 'amazon.nova-sonic-v1:0'
+        modelId: require('../config/AppConfig').config.bedrock?.modelId || 'amazon.nova-2-sonic-v1:0'
       }
     }),
     security: webSocketSecurity,

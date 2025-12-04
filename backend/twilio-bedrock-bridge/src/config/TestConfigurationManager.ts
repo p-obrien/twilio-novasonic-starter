@@ -106,7 +106,7 @@ export class TestConfigurationManager {
       'server.port': 8080,
       'aws.region': 'us-east-1',
       'bedrock.region': 'us-east-1',
-      'bedrock.modelId': 'amazon.nova-sonic-v1:0',
+      'bedrock.modelId': 'amazon.nova-2-sonic-v1:0',
       'logging.level': 'ERROR',
       'environment.nodeEnv': 'test',
       'environment.serviceName': 'twilio-bedrock-bridge-test',
@@ -206,7 +206,7 @@ export class TestConfigurationManager {
   public get bedrock() {
     return {
       region: this.get('bedrock.region') || 'us-east-1',
-      modelId: this.get('bedrock.modelId') || 'amazon.nova-sonic-v1:0'
+      modelId: this.get('bedrock.modelId') || 'amazon.nova-2-sonic-v1:0'
     };
   }
 

@@ -140,3 +140,10 @@ variable "agent_alias_id" {
   type        = string
   default     = null
 }
+
+# Conversation configuration variables
+variable "greeting_message" {
+  description = "Greeting message that Nova Sonic will speak when a call starts"
+  type        = string
+  default     = "Hi, how can I help you today?"
+}

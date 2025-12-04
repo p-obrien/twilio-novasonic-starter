@@ -42,6 +42,11 @@ export interface AudioConfig {
   enableQualityAnalysis: boolean;
 }
 
+// Conversation Configuration
+export interface ConversationConfig {
+  greetingMessage: string;
+}
+
 // Twilio Configuration
 export interface TwilioConfig {
   authToken: string;
@@ -142,6 +147,7 @@ export interface UnifiedConfig {
   inference: InferenceConfig;
   audio: AudioConfig;
   integration: IntegrationConfig;
+  conversation: ConversationConfig;
 }
 
 // Configuration Schema for validation
@@ -168,7 +174,7 @@ export const DEFAULT_CONFIG: Partial<UnifiedConfig> = {
   },
   bedrock: {
     region: 'us-east-1',
-    modelId: 'amazon.nova-sonic-v1:0',
+    modelId: 'amazon.nova-2-sonic-v1:0',
     requestTimeout: 300000,
     sessionTimeout: 300000,
     maxAudioQueueSize: 200,
@@ -249,5 +255,8 @@ export const DEFAULT_CONFIG: Partial<UnifiedConfig> = {
       agentInvocationTimeoutMs: 10000,
       maxRetries: 2,
     },
+  },
+  conversation: {
+    greetingMessage: 'Hi, how can I help you today?',
   },
 };

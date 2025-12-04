@@ -162,7 +162,10 @@ export class MediaMessageHandler extends BaseMessageHandler<TwilioMediaMessage> 
 
     if (!this.isUserTurnActive) {
       this.isUserTurnActive = true;
-      this.log('debug', 'User turn started');
+      this.log('info', 'USER AUDIO DEBUG: User turn started - user is now speaking', {
+        sessionId: this.sessionId,
+        timestamp: this.lastAudioTime
+      });
     }
   }
 
@@ -196,17 +199,24 @@ export class MediaMessageHandler extends BaseMessageHandler<TwilioMediaMessage> 
     try {
       // Send audio chunk immediately to Bedrock (non-blocking)
       this.bedrockClient.streamAudioChunk(this.sessionId, audioData).catch((streamErr) => {
-        this.log('warn', 'Failed to forward immediate audio chunk to Bedrock', {
+        this.log('warn', 'USER AUDIO DEBUG: Failed to forward audio chunk to Bedrock', {
+          sessionId: this.sessionId,
           err: streamErr
         });
       });
 
-      this.log('debug', 'Forwarded immediate audio chunk to Bedrock', {
+      this.log('info', 'USER AUDIO DEBUG: Forwarded audio chunk to Bedrock', {
+        sessionId: this.sessionId,
         bytes: audioData.length,
+        samples: audioData.length / 2,
+        durationMs: Math.round((audioData.length / 2 / 16000) * 1000),
         latencyMode: 'immediate'
       });
     } catch (err) {
-      this.log('warn', 'Error sending immediate audio', { err });
+      this.log('warn', 'USER AUDIO DEBUG: Error sending immediate audio', { 
+        sessionId: this.sessionId,
+        err 
+      });
     }
   }
 
@@ -215,7 +225,7 @@ export class MediaMessageHandler extends BaseMessageHandler<TwilioMediaMessage> 
    */
   private endCurrentUserTurn(): void {
     if (!this.isUserTurnActive || !this.sessionId || !this.isSessionActive()) {
-      this.log('debug', 'Skipping turn end - not active or no session', {
+      this.log('debug', 'USER AUDIO DEBUG: Skipping turn end - not active or no session', {
         isUserTurnActive: this.isUserTurnActive,
         hasSessionId: !!this.sessionId,
         isSessionActive: this.sessionId ? this.isSessionActive() : false
@@ -224,24 +234,41 @@ export class MediaMessageHandler extends BaseMessageHandler<TwilioMediaMessage> 
     }
 
     try {
-      this.log('info', 'Ending user turn due to silence timeout');
+      const silenceDuration = Date.now() - this.lastAudioTime;
+      this.log('info', 'USER AUDIO DEBUG: ===== ENDING USER TURN =====', {
+        sessionId: this.sessionId,
+        silenceDuration,
+        silenceThreshold: this.SILENCE_TIMEOUT_MS,
+        lastAudioTime: this.lastAudioTime
+      });
 
       // End audio content (step 8 in Nova Sonic flow)
+      this.log('info', 'USER AUDIO DEBUG: Sending contentEnd to close user audio stream');
       this.bedrockClient.sendContentEnd(this.sessionId);
-      this.log('info', 'Sent contentEnd for session');
+      this.log('info', 'USER AUDIO DEBUG: ✓ contentEnd sent successfully');
 
       // Wait a brief moment then signal prompt end (step 9 in Nova Sonic flow)
       setTimeoutWithCorrelation(() => {
         if (this.isSessionActive()) {
+          this.log('info', 'USER AUDIO DEBUG: Sending promptEnd to signal end of user turn');
           this.bedrockClient.sendPromptEnd(this.sessionId);
-          this.log('info', 'Sent promptEnd for session - model should now respond');
+          this.log('info', 'USER AUDIO DEBUG: ✓ promptEnd sent - MODEL SHOULD NOW RESPOND');
+        } else {
+          this.log('warn', 'USER AUDIO DEBUG: Session became inactive before promptEnd could be sent');
         }
       }, 100);
 
       this.isUserTurnActive = false;
-      this.log('debug', 'User turn ended, waiting for model response');
+      this.log('info', 'USER AUDIO DEBUG: User turn ended, waiting for model response', {
+        sessionId: this.sessionId
+      });
     } catch (endErr) {
-      this.log('warn', 'Failed to end user turn', { err: endErr });
+      this.log('error', 'USER AUDIO DEBUG: Failed to end user turn', { 
+        sessionId: this.sessionId,
+        err: endErr,
+        message: (endErr as Error)?.message,
+        stack: (endErr as Error)?.stack
+      });
     }
   }
 

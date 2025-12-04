@@ -1,9 +1,27 @@
 import { WebSocket } from 'ws';
-import { metricsUtils } from './metrics';
 
 // WebSocket connection tracking with automatic cleanup
 const connectionStartTimes = new Map<WebSocket, number>();
 const MAX_TRACKED_CONNECTIONS = 10000; // Prevent memory leaks
+
+// Lazy load metricsUtils to avoid circular dependency issues
+let metricsUtils: any = null;
+function getMetricsUtils() {
+  if (!metricsUtils) {
+    try {
+      metricsUtils = require('./metrics').metricsUtils;
+    } catch (error) {
+      console.warn('Failed to load metricsUtils:', error);
+      metricsUtils = {
+        recordWebSocketConnection: () => {},
+        recordWebSocketMessage: () => {},
+        recordError: () => {},
+        recordAudioProcessing: () => {},
+      };
+    }
+  }
+  return metricsUtils;
+}
 
 export class WebSocketMetrics {
   static onConnection(ws: WebSocket): void {
@@ -18,7 +36,7 @@ export class WebSocketMetrics {
     connectionStartTimes.set(ws, startTime);
     
     // Record connection
-    metricsUtils.recordWebSocketConnection('connect');
+    getMetricsUtils().recordWebSocketConnection('connect');
     
     // Set up message handlers
     ws.on('message', (data: Buffer) => {
@@ -49,7 +67,7 @@ export class WebSocketMetrics {
       const messageType = message.event || message.type || 'unknown';
       
       // Record message metrics
-      metricsUtils.recordWebSocketMessage(direction, messageType, data.length);
+      getMetricsUtils().recordWebSocketMessage(direction, messageType, data.length);
       
       // Handle specific message types
       if (messageType === 'media') {
@@ -61,7 +79,7 @@ export class WebSocketMetrics {
       }
     } catch (error) {
       // If not JSON, treat as raw data
-      metricsUtils.recordWebSocketMessage(direction, 'raw', data.length);
+      getMetricsUtils().recordWebSocketMessage(direction, 'raw', data.length);
     }
   }
   
@@ -70,7 +88,7 @@ export class WebSocketMetrics {
     const duration = startTime ? (Date.now() - startTime) / 1000 : undefined;
     
     connectionStartTimes.delete(ws);
-    metricsUtils.recordWebSocketConnection('disconnect', duration);
+    getMetricsUtils().recordWebSocketConnection('disconnect', duration);
   }
 
   static cleanup(): void {
@@ -79,13 +97,13 @@ export class WebSocketMetrics {
   }
   
   static onError(ws: WebSocket, error: Error): void {
-    metricsUtils.recordError('websocket_error', 'websocket', 'medium');
+    getMetricsUtils().recordError('websocket_error', 'websocket', 'medium');
   }
   
   private static onMediaMessage(message: any, size: number): void {
     // Record audio processing metrics
     const sampleRate = message.sampleRate || 8000;
-    metricsUtils.recordAudioProcessing('receive', 0, size, sampleRate);
+    getMetricsUtils().recordAudioProcessing('receive', 0, size, sampleRate);
   }
   
   private static onStreamStart(message: any): void {

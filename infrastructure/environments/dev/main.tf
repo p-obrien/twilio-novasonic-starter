@@ -123,8 +123,8 @@ resource "aws_route53_record" "alb_alias" {
 
   depends_on = [module.alb]
 }
-
-# Bedrock Knowledge Base (optional)
+ 
+# Bedrock Knowledge Base
 module "knowledge_base" {
   count  = var.create_knowledge_base ? 1 : 0
   source = "../../modules/bedrock-knowledge-base"
@@ -151,7 +151,7 @@ module "knowledge_base" {
   tags = local.common_tags
 }
 
-# Bedrock Agent (optional)
+# Bedrock Agent
 module "agent" {
   count  = var.create_agent ? 1 : 0
   source = "../../modules/bedrock-agent"
@@ -203,6 +203,9 @@ module "ecs" {
   # Twilio configuration
   twilio_auth_token             = var.twilio_auth_token
   verify_twilio_signature       = var.verify_twilio_signature
+  
+  # Conversation configuration
+  greeting_message              = var.greeting_message
   
   # Knowledge Base and Agent configuration - use created resources or external ARNs
   knowledge_base_arns           = concat(

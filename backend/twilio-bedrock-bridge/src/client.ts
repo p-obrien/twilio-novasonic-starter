@@ -99,6 +99,13 @@ export interface SessionData {
   modelSpeaking?: boolean;
   lastUserActivity?: number;
   lastModelActivity?: number;
+  // Speaks-first configuration
+  speaksFirst?: boolean;
+  initialPrompt?: string;
+  // Greeting state tracking (for observability)
+  greetingDelivered?: boolean;
+  greetingStartTime?: number;
+  greetingEndTime?: number;
 }
 
 
@@ -174,11 +181,24 @@ export class NovaSonicBidirectionalStreamClient {
   }
 
   /**
+   * Get a stream session by ID
+   */
+  public getStreamSession(sessionId: string): UnifiedStreamSession | undefined {
+    return this.streamSessions.get(sessionId);
+  }
+
+  /**
    * Create a new streaming session
+   * 
+   * @param sessionId - Unique session identifier
+   * @param config - Session configuration including optional speaksFirst settings
    */
   public createStreamSession(
     sessionId: string = randomUUID(),
-    config?: NovaSonicBidirectionalStreamClientConfig
+    config?: NovaSonicBidirectionalStreamClientConfig & {
+      speaksFirst?: boolean;
+      initialPrompt?: string;
+    }
   ): UnifiedStreamSession {
     // Validate session ID
     if (!isValidSessionId(sessionId)) {
@@ -221,7 +241,12 @@ export class NovaSonicBidirectionalStreamClient {
       }
     }
 
-    const session = this.createSessionData(sessionId, config?.inferenceConfig);
+    const session = this.createSessionData(
+      sessionId, 
+      config?.inferenceConfig,
+      config?.speaksFirst,
+      config?.initialPrompt
+    );
     this.activeSessions.set(sessionId, session);
 
     // Create session configuration for UnifiedStreamSession
@@ -230,7 +255,9 @@ export class NovaSonicBidirectionalStreamClient {
       maxQueueSize: CLIENT_DEFAULTS.MAX_AUDIO_QUEUE_SIZE,
       processingTimeout: CLIENT_DEFAULTS.SESSION_TIMEOUT,
       enableMetrics: true,
-      inferenceConfig: config?.inferenceConfig || this.inferenceConfig
+      inferenceConfig: config?.inferenceConfig || this.inferenceConfig,
+      speaksFirst: config?.speaksFirst,
+      initialPrompt: config?.initialPrompt
     };
 
     const streamSession = new UnifiedStreamSession(sessionConfig, this);
@@ -257,7 +284,9 @@ export class NovaSonicBidirectionalStreamClient {
         // Start custom observability tracking
         bedrockObservability.startSession(sessionId, configManager.bedrock.modelId);
 
-      this.setupSessionStartEvent(sessionId);
+      // Note: sessionStart and all other events are queued by the caller (StartMessageHandler)
+      // BEFORE initiateSession() is called. This ensures all events are queued before the
+      // async iterator begins processing them, guaranteeing correct event ordering.
       const asyncIterable = this.createSessionAsyncIterable(sessionId);
 
       logger.info(`Starting bidirectional stream for session ${sessionId}`);
@@ -453,6 +482,13 @@ export class NovaSonicBidirectionalStreamClient {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
 
+    const timestamp = Date.now();
+    logger.info(`SPEAKS-FIRST DEBUG: setupSessionStartEvent called`, {
+      sessionId,
+      timestamp,
+      queueLengthBefore: session.queue.length
+    });
+
     // Create a clean copy of inference config to avoid any reference issues
     const cleanInferenceConfig = {
       maxTokens: session.inferenceConfig.maxTokens,
@@ -467,11 +503,24 @@ export class NovaSonicBidirectionalStreamClient {
         }
       }
     });
+
+    logger.info(`SPEAKS-FIRST DEBUG: sessionStart event queued`, {
+      sessionId,
+      queueLengthAfter: session.queue.length,
+      elapsedMs: Date.now() - timestamp
+    });
   }
 
   public setupPromptStartEvent(sessionId: string): void {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
+
+    const timestamp = Date.now();
+    logger.info(`SPEAKS-FIRST DEBUG: setupPromptStartEvent called`, {
+      sessionId,
+      timestamp,
+      queueLengthBefore: session.queue.length
+    });
 
     this.addEventToSessionQueue(sessionId, {
       event: {
@@ -486,6 +535,12 @@ export class NovaSonicBidirectionalStreamClient {
       }
     });
     session.isPromptStartSent = true;
+
+    logger.info(`SPEAKS-FIRST DEBUG: promptStart event queued`, {
+      sessionId,
+      queueLengthAfter: session.queue.length,
+      elapsedMs: Date.now() - timestamp
+    });
   }
 
   public setupSystemPromptEvent(
@@ -496,9 +551,18 @@ export class NovaSonicBidirectionalStreamClient {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
 
+    const timestamp = Date.now();
     const textPromptID = randomUUID();
 
+    logger.info(`SPEAKS-FIRST DEBUG: setupSystemPromptEvent called`, {
+      sessionId,
+      timestamp,
+      promptLength: systemPromptContent.length,
+      queueLengthBefore: session.queue.length
+    });
+
     // Content start
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing SYSTEM contentStart`);
     this.addEventToSessionQueue(sessionId, {
       event: {
         contentStart: {
@@ -513,6 +577,7 @@ export class NovaSonicBidirectionalStreamClient {
     });
 
     // Text input
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing SYSTEM textInput`);
     this.addEventToSessionQueue(sessionId, {
       event: {
         textInput: {
@@ -524,6 +589,7 @@ export class NovaSonicBidirectionalStreamClient {
     });
 
     // Content end
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing SYSTEM contentEnd`);
     this.addEventToSessionQueue(sessionId, {
       event: {
         contentEnd: {
@@ -531,6 +597,12 @@ export class NovaSonicBidirectionalStreamClient {
           contentName: textPromptID,
         },
       }
+    });
+
+    logger.info(`SPEAKS-FIRST DEBUG: systemPrompt events queued (3 events)`, {
+      sessionId,
+      queueLengthAfter: session.queue.length,
+      elapsedMs: Date.now() - timestamp
     });
   }
 
@@ -540,6 +612,17 @@ export class NovaSonicBidirectionalStreamClient {
   ): void {
     const session = this.activeSessions.get(sessionId);
     if (!session) return;
+
+    const timestamp = Date.now();
+    logger.info(`SPEAKS-FIRST DEBUG: setupStartAudioEvent called`, {
+      sessionId,
+      timestamp,
+      queueLengthBefore: session.queue.length,
+      audioConfig: {
+        encoding: audioConfig.encoding,
+        sampleRateHertz: audioConfig.sampleRateHertz
+      }
+    });
 
     this.addEventToSessionQueue(sessionId, {
       event: {
@@ -554,6 +637,12 @@ export class NovaSonicBidirectionalStreamClient {
       }
     });
     session.isAudioContentStartSent = true;
+
+    logger.info(`SPEAKS-FIRST DEBUG: audio contentStart event queued`, {
+      sessionId,
+      queueLengthAfter: session.queue.length,
+      elapsedMs: Date.now() - timestamp
+    });
   }
 
   // ============================================================================
@@ -566,10 +655,30 @@ export class NovaSonicBidirectionalStreamClient {
   public async streamAudioChunk(sessionId: string, audioData: Buffer): Promise<void> {
     const session = this.activeSessions.get(sessionId);
     if (!session || !session.isActive || !session.audioContentId) {
+      logger.warn(`USER AUDIO DEBUG: Cannot stream audio chunk - invalid session`, {
+        sessionId,
+        hasSession: !!session,
+        isActive: session?.isActive,
+        hasAudioContentId: !!session?.audioContentId
+      });
       throw new Error(`Invalid session ${sessionId} for audio streaming`);
     }
 
     const base64Data = audioData.toString('base64');
+    
+    // Log only occasionally to avoid flooding logs (every 50th chunk)
+    const shouldLog = session.queue.filter((item: any) => item?.event?.audioInput).length % 50 === 0;
+    if (shouldLog) {
+      logger.info(`USER AUDIO DEBUG: Streaming audio chunk to Bedrock`, {
+        sessionId,
+        audioBytes: audioData.length,
+        base64Length: base64Data.length,
+        samples: audioData.length / 2,
+        durationMs: Math.round((audioData.length / 2 / 16000) * 1000),
+        queueLength: session.queue.length
+      });
+    }
+    
     this.addEventToSessionQueue(sessionId, {
       event: {
         audioInput: {
@@ -581,13 +690,171 @@ export class NovaSonicBidirectionalStreamClient {
     });
   }
 
+  /**
+   * Queue text input events for speaks-first (called during setup, before stream starts)
+   * This is the correct way to trigger speaks-first - queue events before initiating the stream.
+   * 
+   * Following the AWS sample pattern: contentStart (USER/TEXT) -> textInput -> contentEnd
+   */
+  public queueTextInputEvents(sessionId: string, textContent: string): void {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
+
+    const textContentId = randomUUID();
+
+    logger.info(`SPEAKS-FIRST DEBUG: queueTextInputEvents called`, {
+      sessionId,
+      textContent,
+      textLength: textContent.length,
+      contentId: textContentId,
+      queueLengthBefore: session.queue.length
+    });
+
+    // Text content start (USER role, interactive)
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing contentStart (USER/TEXT) event`);
+    this.addEventToSessionQueue(sessionId, {
+      event: {
+        contentStart: {
+          promptName: session.promptName,
+          contentName: textContentId,
+          type: "TEXT",
+          interactive: true,
+          role: "USER",
+          textInputConfiguration: { mediaType: "text/plain" }
+        }
+      }
+    });
+
+    // Text input content
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing textInput event`);
+    this.addEventToSessionQueue(sessionId, {
+      event: {
+        textInput: {
+          promptName: session.promptName,
+          contentName: textContentId,
+          content: textContent,
+        }
+      }
+    });
+
+    // Text content end
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing contentEnd event`);
+    this.addEventToSessionQueue(sessionId, {
+      event: {
+        contentEnd: {
+          promptName: session.promptName,
+          contentName: textContentId,
+        }
+      }
+    });
+
+    logger.info(`SPEAKS-FIRST DEBUG: queueTextInputEvents completed - all events queued`, {
+      sessionId,
+      textLength: textContent.length,
+      contentId: textContentId,
+      queueLengthAfter: session.queue.length,
+      eventsAdded: 3
+    });
+  }
+
+  /**
+   * Send text input to trigger model response (used for speaks-first)
+   * Following the AWS sample pattern: contentStart (USER/TEXT) -> textInput -> contentEnd
+   * 
+   * This allows Nova Sonic 2 to generate an immediate response without waiting
+   * for user audio input, enabling "speaks first" greeting functionality.
+   * 
+   * NOTE: For initial speaks-first greeting, use queueTextInputEvents() instead during setup.
+   * This method is for sending text input after the session is already active.
+   */
+  public sendTextInput(sessionId: string, textContent: string): void {
+    const session = this.activeSessions.get(sessionId);
+    if (!session || !session.isActive) {
+      throw new Error(`Invalid session ${sessionId} for text input`);
+    }
+
+    const textContentId = randomUUID();
+
+    logger.info(`SPEAKS-FIRST DEBUG: sendTextInput called`, {
+      sessionId,
+      textContent,
+      textLength: textContent.length,
+      contentId: textContentId,
+      queueLengthBefore: session.queue.length
+    });
+
+    // Text content start (USER role, interactive)
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing contentStart (USER/TEXT) event`);
+    this.addEventToSessionQueue(sessionId, {
+      event: {
+        contentStart: {
+          promptName: session.promptName,
+          contentName: textContentId,
+          type: "TEXT",
+          interactive: true,
+          role: "USER",
+          textInputConfiguration: { mediaType: "text/plain" }
+        }
+      }
+    });
+
+    // Text input content
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing textInput event`);
+    this.addEventToSessionQueue(sessionId, {
+      event: {
+        textInput: {
+          promptName: session.promptName,
+          contentName: textContentId,
+          content: textContent,
+        }
+      }
+    });
+
+    // Text content end
+    logger.debug(`SPEAKS-FIRST DEBUG: Queueing contentEnd event`);
+    this.addEventToSessionQueue(sessionId, {
+      event: {
+        contentEnd: {
+          promptName: session.promptName,
+          contentName: textContentId,
+        }
+      }
+    });
+
+    logger.info(`SPEAKS-FIRST DEBUG: sendTextInput completed - all events queued`, {
+      sessionId,
+      textLength: textContent.length,
+      contentId: textContentId,
+      queueLengthAfter: session.queue.length,
+      eventsAdded: 3
+    });
+  }
+
   // ============================================================================
   // SESSION CONTROL METHODS
   // ============================================================================
 
   public sendContentEnd(sessionId: string): void {
     const session = this.activeSessions.get(sessionId);
-    if (!session?.isAudioContentStartSent) return;
+    
+    logger.info(`USER AUDIO DEBUG: sendContentEnd called`, {
+      sessionId,
+      hasSession: !!session,
+      isAudioContentStartSent: session?.isAudioContentStartSent,
+      audioContentId: session?.audioContentId,
+      queueLengthBefore: session?.queue.length
+    });
+    
+    if (!session?.isAudioContentStartSent) {
+      logger.warn(`USER AUDIO DEBUG: Cannot send contentEnd - audio content not started`, {
+        sessionId,
+        hasSession: !!session,
+        isAudioContentStartSent: session?.isAudioContentStartSent
+      });
+      return;
+    }
 
     this.addEventToSessionQueue(sessionId, {
       event: {
@@ -597,11 +864,32 @@ export class NovaSonicBidirectionalStreamClient {
         }
       }
     });
+    
+    logger.info(`USER AUDIO DEBUG: contentEnd event queued successfully`, {
+      sessionId,
+      queueLengthAfter: session.queue.length
+    });
   }
 
   public sendPromptEnd(sessionId: string): void {
     const session = this.activeSessions.get(sessionId);
-    if (!session?.isPromptStartSent) return;
+    
+    logger.info(`USER AUDIO DEBUG: sendPromptEnd called`, {
+      sessionId,
+      hasSession: !!session,
+      isPromptStartSent: session?.isPromptStartSent,
+      promptName: session?.promptName,
+      queueLengthBefore: session?.queue.length
+    });
+    
+    if (!session?.isPromptStartSent) {
+      logger.warn(`USER AUDIO DEBUG: Cannot send promptEnd - prompt not started`, {
+        sessionId,
+        hasSession: !!session,
+        isPromptStartSent: session?.isPromptStartSent
+      });
+      return;
+    }
 
     this.addEventToSessionQueue(sessionId, {
       event: {
@@ -612,7 +900,11 @@ export class NovaSonicBidirectionalStreamClient {
     });
 
     session.isWaitingForResponse = true;
-    logger.info(`Set isWaitingForResponse=true for session ${sessionId}`);
+    logger.info(`USER AUDIO DEBUG: promptEnd event queued successfully - waiting for model response`, {
+      sessionId,
+      queueLengthAfter: session.queue.length,
+      isWaitingForResponse: true
+    });
   }
 
   public sendSessionEnd(sessionId: string): void {
@@ -670,7 +962,12 @@ export class NovaSonicBidirectionalStreamClient {
   /**
    * Create session data structure
    */
-  private createSessionData(sessionId: string, inferenceConfig?: InferenceConfig): SessionData {
+  private createSessionData(
+    sessionId: string, 
+    inferenceConfig?: InferenceConfig,
+    speaksFirst?: boolean,
+    initialPrompt?: string
+  ): SessionData {
     return {
       queue: [],
       queueSignal: new Subject<void>(),
@@ -686,7 +983,10 @@ export class NovaSonicBidirectionalStreamClient {
       isWaitingForResponse: false,
       realtimeMode: true, // Real-time mode enabled by default for bidirectional streaming
       userSpeaking: false,
-      modelSpeaking: false
+      modelSpeaking: false,
+      // Speaks-first configuration
+      speaksFirst,
+      initialPrompt
     };
   }
 
@@ -1022,7 +1322,7 @@ export class NovaSonicBidirectionalStreamClient {
     const typedEvent = event as any;
     const eventKey = typedEvent?.event && Object.keys(typedEvent.event)[0];
     const isAudioEvent = eventKey === 'audioInput' ||
-      (eventKey === 'contentStart' && typedEvent.event?.contentStart?.type === 'AUDIO');
+      (eventKey === 'contentStart' && typedEvent.event?.contentStart?.type === 'AUDIO' && typedEvent.event?.contentStart?.role === 'USER');
 
     // Validate that the event can be serialized before adding to queue
     try {
@@ -1051,9 +1351,22 @@ export class NovaSonicBidirectionalStreamClient {
     }
 
     if (!isAudioEvent) {
-      logger.debug(`Adding event to queue for session ${sessionId}:`, event);
+      // Log event details for speaks-first debugging
+      const eventDetails: any = { eventType: eventKey };
+      if (eventKey === 'contentStart') {
+        eventDetails.role = typedEvent.event.contentStart?.role;
+        eventDetails.type = typedEvent.event.contentStart?.type;
+        eventDetails.interactive = typedEvent.event.contentStart?.interactive;
+      } else if (eventKey === 'textInput') {
+        eventDetails.contentLength = typedEvent.event.textInput?.content?.length || 0;
+      }
+      
+      logger.debug(`SPEAKS-FIRST DEBUG: Adding event to queue for session ${sessionId}`, {
+        ...eventDetails,
+        queuePosition: session.queue.length
+      });
     } else {
-      logger.trace('session.event.suppressed', { sessionId, eventType: eventKey });
+      logger.debug('session.event.suppressed', { sessionId, eventType: eventKey });
     }
 
     this.updateSessionActivity(sessionId);
@@ -1125,14 +1438,14 @@ export class NovaSonicBidirectionalStreamClient {
       toJSON: () => ({
         type: 'bidirectional-stream',
         sessionId: sessionId,
-        modelId: 'amazon.nova-sonic-v1:0'
+        modelId: 'amazon.nova-2-sonic-v1:0'
       }),
 
       // Return a JSON string instead of a description to avoid parsing errors
       toString: () => JSON.stringify({
         type: 'bidirectional-stream',
         sessionId: sessionId,
-        modelId: 'amazon.nova-sonic-v1:0'
+        modelId: 'amazon.nova-2-sonic-v1:0'
       }),
 
       [Symbol.asyncIterator]: () => ({
@@ -1405,19 +1718,36 @@ export class NovaSonicBidirectionalStreamClient {
               // Use this.normalizeForHandlers to normalize content identifiers and parse additionalModelFields
 
               if (evt.contentStart) {
+                logger.info(`SPEAKS-FIRST DEBUG: contentStart event received`, {
+                  sessionId,
+                  role: evt.contentStart.role,
+                  type: evt.contentStart.type
+                });
                 evt.contentStart = this.normalizeForHandlers(evt.contentStart);
                 this.dispatchEvent(sessionId, 'contentStart', evt.contentStart);
               } else if (evt.textOutput) {
+                logger.info(`SPEAKS-FIRST DEBUG: textOutput event received`, {
+                  sessionId,
+                  textLength: evt.textOutput.content?.length || 0
+                });
                 evt.textOutput = this.normalizeForHandlers(evt.textOutput);
                 this.dispatchEvent(sessionId, 'textOutput', evt.textOutput);
               } else if (evt.audioOutput) {
+                logger.info(`SPEAKS-FIRST DEBUG: audioOutput event received from Bedrock`, {
+                  sessionId,
+                  hasContent: !!evt.audioOutput.content,
+                  contentLength: evt.audioOutput.content?.length || 0,
+                  sampleRateHz: evt.audioOutput.sampleRateHz
+                });
                 evt.audioOutput = this.normalizeForHandlers(evt.audioOutput);
 
                 // Buffer audio output for fast model responses (Nova Sonic can generate faster than real-time)
                 if (evt.audioOutput.content) {
+                  logger.debug(`SPEAKS-FIRST DEBUG: Buffering audio output content`);
                   this.bufferModelAudioOutput(sessionId, evt.audioOutput.content);
                 }
 
+                logger.debug(`SPEAKS-FIRST DEBUG: Dispatching audioOutput event to handlers`);
                 this.dispatchEvent(sessionId, 'audioOutput', evt.audioOutput);
               } else if (evt.usageEvent) {
                 this.dispatchEvent(sessionId, 'usageEvent', evt.usageEvent);
