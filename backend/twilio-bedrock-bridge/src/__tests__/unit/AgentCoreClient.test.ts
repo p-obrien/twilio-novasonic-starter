@@ -16,7 +16,7 @@ jest.mock('@aws-sdk/client-bedrock-agent-runtime');
 jest.mock('@smithy/node-http-handler');
 
 // Mock dependencies
-jest.mock('../config/AppConfig', () => ({
+jest.mock('../../config/AppConfig', () => ({
   config: {
     aws: {
       region: 'us-east-1',
@@ -37,7 +37,7 @@ const mockLogger = {
   trace: jest.fn(),
 };
 
-jest.mock('../observability/logger', () => ({
+jest.mock('../../observability/logger', () => ({
   __esModule: true,
   default: mockLogger,
   logger: mockLogger,
@@ -45,7 +45,7 @@ jest.mock('../observability/logger', () => ({
   clearTraceContextCache: jest.fn(),
 }));
 
-jest.mock('../observability/dataProtection', () => ({
+jest.mock('../../observability/dataProtection', () => ({
   DataProtection: {
     auditAgentInvocation: jest.fn(),
   },
@@ -53,7 +53,7 @@ jest.mock('../observability/dataProtection', () => ({
 
 const mockTraceWithCorrelation = jest.fn();
 
-jest.mock('../utils/correlationId', () => ({
+jest.mock('../../utils/correlationId', () => ({
   CorrelationIdManager: {
     getCurrentCorrelationId: jest.fn(() => 'test-correlation-id'),
     traceWithCorrelation: mockTraceWithCorrelation,
@@ -69,9 +69,9 @@ import {
   IAgentCoreClient,
   AgentCoreClientConfig,
   createAgentCoreClient
-} from '../agent/AgentCoreClient';
-import { AgentResponse, ValidationResult } from '../types/IntegrationTypes';
-import { BedrockServiceError } from '../errors/ClientErrors';
+} from '../../agent/AgentCoreClient';
+import { AgentResponse, ValidationResult } from '../../types/IntegrationTypes';
+import { BedrockServiceError } from '../../errors/ClientErrors';
 import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime';
 
 const MockBedrockAgentRuntimeClient = BedrockAgentRuntimeClient as jest.MockedClass<typeof BedrockAgentRuntimeClient>;
@@ -614,7 +614,7 @@ describe('AgentCoreClient', () => {
     });
 
     it('should call data protection auditing for successful invocations', async () => {
-      const { DataProtection } = require('../observability/dataProtection');
+      const { DataProtection } = require('../../observability/dataProtection');
       
       await client.invokeAgent('agent-123', 'alias-456', 'test input', 'session-789');
       
@@ -635,7 +635,7 @@ describe('AgentCoreClient', () => {
     });
 
     it('should call data protection auditing for failed invocations', async () => {
-      const { DataProtection } = require('../observability/dataProtection');
+      const { DataProtection } = require('../../observability/dataProtection');
       const error = new Error('Test error');
       mockSend.mockRejectedValueOnce(error);
       
@@ -658,7 +658,7 @@ describe('AgentCoreClient', () => {
     });
 
     it('should use correlation tracing', async () => {
-      const { CorrelationIdManager } = require('../utils/correlationId');
+      const { CorrelationIdManager } = require('../../utils/correlationId');
       
       await client.invokeAgent('agent-123', 'alias-456', 'test input', 'session-789');
       

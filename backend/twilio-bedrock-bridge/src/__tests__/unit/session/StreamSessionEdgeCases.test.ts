@@ -7,17 +7,17 @@
  * which minimizes buffering and uses immediate audio streaming.
  */
 
-import { UnifiedStreamSession, StreamClientInterface } from '../session/UnifiedStreamSession';
+import { UnifiedStreamSession, StreamClientInterface } from '../../../session/UnifiedStreamSession';
 import {
   SessionError,
   AudioProcessingError,
   SessionInactiveError
-} from '../errors/ClientErrors';
-import { EventHandler } from '../types/ClientTypes';
+} from '../../../errors/ClientErrors';
+import { EventHandler } from '../../../types/ClientTypes';
 
 // Mock dependencies
-jest.mock('../utils/logger');
-jest.mock('../utils/correlationId', () => ({
+jest.mock('../../../utils/logger');
+jest.mock('../../../utils/correlationId', () => ({
   CorrelationIdManager: {
     getCurrentContext: jest.fn().mockReturnValue({ correlationId: 'parent-correlation-id' }),
     createBedrockContext: jest.fn().mockReturnValue({ correlationId: 'bedrock-correlation-id' }),

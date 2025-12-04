@@ -9,18 +9,18 @@ import request from 'supertest';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import http from 'http';
-import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../client/';
-import { WebhookHandler } from '../handlers/WebhookHandler';
-import { HealthHandler } from '../handlers/HealthHandler';
-import { initWebsocketServer } from '../handlers/WebsocketHandler';
+import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../../client/';
+import { WebhookHandler } from '../../handlers/WebhookHandler';
+import { HealthHandler } from '../../handlers/HealthHandler';
+import { initWebsocketServer } from '../../handlers/WebsocketHandler';
 
 // Mock external dependencies
 jest.mock('@aws-sdk/client-bedrock-runtime');
-jest.mock('../utils/logger');
-jest.mock('../observability/bedrockObservability');
-jest.mock('../observability/websocketMetrics');
-jest.mock('../observability/sessionMetrics');
-jest.mock('../observability/cloudWatchMetrics', () => ({
+jest.mock('../../utils/logger');
+jest.mock('../../observability/bedrockObservability');
+jest.mock('../../observability/websocketMetrics');
+jest.mock('../../observability/sessionMetrics');
+jest.mock('../../observability/cloudWatchMetrics', () => ({
   CloudWatchMetricsService: {
     getBatchStatus: jest.fn().mockReturnValue({
       batchSize: 10,
@@ -29,7 +29,7 @@ jest.mock('../observability/cloudWatchMetrics', () => ({
     })
   }
 }));
-jest.mock('../observability/smartSampling', () => ({
+jest.mock('../../observability/smartSampling', () => ({
   smartSampler: {
     getSamplingConfig: jest.fn().mockReturnValue({
       defaultSampleRate: 0.1,
@@ -53,7 +53,7 @@ jest.mock('../observability/smartSampling', () => ({
     injectTraceContext: jest.fn()
   }
 }));
-jest.mock('../security/WebSocketSecurity', () => ({
+jest.mock('../../security/WebSocketSecurity', () => ({
   webSocketSecurity: {
     validateConnection: jest.fn().mockReturnValue({
       isValid: true,
@@ -69,7 +69,7 @@ jest.mock('../security/WebSocketSecurity', () => ({
     isSessionActive: jest.fn().mockReturnValue(true)
   }
 }));
-jest.mock('../observability/metrics', () => ({
+jest.mock('../../observability/metrics', () => ({
   applicationMetrics: {
     errorsTotal: {
       add: jest.fn()

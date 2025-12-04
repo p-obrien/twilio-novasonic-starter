@@ -14,25 +14,25 @@ const mockLogger = {
   trace: jest.fn(),
 };
 
-jest.mock('../observability/logger', () => ({
+jest.mock('../../observability/logger', () => ({
   __esModule: true,
   default: mockLogger,
   logger: mockLogger,
 }));
 
-jest.mock('../utils/logger', () => ({
+jest.mock('../../utils/logger', () => ({
   __esModule: true,
   default: mockLogger,
   logger: mockLogger,
 }));
-jest.mock('../observability/bedrockObservability', () => ({
+jest.mock('../../observability/bedrockObservability', () => ({
   bedrockObservability: {
     startSession: jest.fn(),
     recordError: jest.fn(),
     completeSession: jest.fn()
   }
 }));
-jest.mock('../utils/correlationId', () => ({
+jest.mock('../../utils/correlationId', () => ({
   CorrelationIdManager: {
     getCurrentCorrelationId: jest.fn(() => 'test-correlation-id'),
     traceWithCorrelation: jest.fn((name, fn) => fn()),
@@ -41,7 +41,7 @@ jest.mock('../utils/correlationId', () => ({
     getCurrentContext: jest.fn().mockReturnValue({ correlationId: 'test-correlation-id' })
   }
 }));
-jest.mock('../agents/ToolRegistry', () => ({
+jest.mock('../../agents/ToolRegistry', () => ({
   ToolRegistry: {
     getInstance: jest.fn().mockReturnValue({
       registerTool: jest.fn(),
@@ -52,8 +52,8 @@ jest.mock('../agents/ToolRegistry', () => ({
   }
 }));
 
-import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../client/';
-import { UnifiedStreamSession } from '../session/UnifiedStreamSession';
+import { NovaSonicClient as NovaSonicBidirectionalStreamClient } from '../../client/';
+import { UnifiedStreamSession } from '../../session/UnifiedStreamSession';
 import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
 import { Subject } from 'rxjs';
 

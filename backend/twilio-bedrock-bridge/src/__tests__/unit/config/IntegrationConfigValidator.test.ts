@@ -2,8 +2,8 @@
  * Tests for IntegrationConfigValidator
  */
 
-import { IntegrationConfigValidator } from '../config/IntegrationConfigValidator';
-import { IntegrationConfig, KnowledgeBaseConfig, AgentConfig, ThresholdConfig } from '../types/IntegrationTypes';
+import { IntegrationConfigValidator } from '../../../config/IntegrationConfigValidator';
+import { IntegrationConfig, KnowledgeBaseConfig, AgentConfig, ThresholdConfig } from '../../../types/IntegrationTypes';
 
 describe('IntegrationConfigValidator', () => {
   const validKnowledgeBase: KnowledgeBaseConfig = {
