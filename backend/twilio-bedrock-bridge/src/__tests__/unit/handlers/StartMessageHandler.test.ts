@@ -2,20 +2,20 @@
  * Unit tests for StartMessageHandler
  */
 
+// Mock dependencies BEFORE imports
+jest.mock('../../../security/WebSocketSecurity');
+jest.mock('../../../observability/sessionMetrics');
+jest.mock('../../../audio/AudioBufferManager');
+jest.mock('../../../audio/AudioProcessor');
+jest.mock('../../../observability/logger');
+
 import { StartMessageHandler } from '../../../handlers/handlers/StartMessageHandler';
 import { MessageHandlerContext } from '../../../handlers/handlers/BaseMessageHandler';
 import { TwilioStartMessage } from '../../../handlers/types/TwilioMessages';
 import { ExtendedWebSocket } from '../../../types/SharedTypes';
 import { NovaSonicBidirectionalStreamClient } from '../../../client';
 import { webSocketSecurity } from '../../../security/WebSocketSecurity';
-
-// Mock dependencies
-jest.mock('../../../security/WebSocketSecurity');
-jest.mock('../../../observability/sessionMetrics');
-jest.mock('../../../audio/AudioBufferManager');
-jest.mock('../../../audio/AudioProcessor');
-jest.mock('../../../resilience');
-jest.mock('../../../observability/logger');
+import * as resilience from '../../../resilience';
 
 describe('StartMessageHandler', () => {
   let handler: StartMessageHandler;
@@ -24,6 +24,20 @@ describe('StartMessageHandler', () => {
   let mockBedrockClient: jest.Mocked<NovaSonicBidirectionalStreamClient>;
 
   beforeEach(() => {
+    // Mock circuit breaker
+    const mockCircuitBreaker = {
+      execute: jest.fn((fn) => Promise.resolve(fn())),
+      reset: jest.fn(),
+      getState: jest.fn().mockReturnValue('CLOSED'),
+      getMetrics: jest.fn().mockReturnValue({
+        totalCalls: 0,
+        successfulCalls: 0,
+        failedCalls: 0,
+        rejectedCalls: 0
+      })
+    };
+    jest.spyOn(resilience, 'getBedrockCircuitBreaker').mockReturnValue(mockCircuitBreaker as any);
+
     // Create mock WebSocket
     mockWs = {
       id: 'test-ws-id',
@@ -43,6 +57,9 @@ describe('StartMessageHandler', () => {
       setupPromptStartEvent: jest.fn(),
       setupSystemPromptEvent: jest.fn(),
       setupStartAudioEvent: jest.fn(),
+      sendTextInput: jest.fn(),
+      queueTextInputEvents: jest.fn(),
+      getSessionData: jest.fn().mockReturnValue({ queue: [] }),
       registerEventHandler: jest.fn(),
       streamAudioChunk: jest.fn().mockResolvedValue(undefined),
       sendContentEnd: jest.fn(),
@@ -60,9 +77,6 @@ describe('StartMessageHandler', () => {
 
     // Create handler
     handler = new StartMessageHandler(mockContext);
-
-    // Reset mocks
-    jest.clearAllMocks();
 
     // Setup default mock returns
     (webSocketSecurity.validateWebSocketMessage as jest.Mock).mockReturnValue({
@@ -145,17 +159,38 @@ describe('StartMessageHandler', () => {
       expect(mockBedrockClient.createStreamSession).not.toHaveBeenCalled();
     });
 
-    it('should setup session events in correct order', async () => {
-      // Make session active after creation
+    it('should setup session events in correct order and start stream after', async () => {
+      const callOrder: string[] = [];
+      
+      // Track call order to verify events are queued BEFORE stream starts
       mockBedrockClient.createStreamSession.mockImplementation(() => {
+        callOrder.push('createStreamSession');
         mockBedrockClient.isSessionActive.mockReturnValue(true);
         return {} as any;
+      });
+      mockBedrockClient.setupSessionStartEvent.mockImplementation(() => {
+        callOrder.push('setupSessionStartEvent');
+      });
+      mockBedrockClient.setupPromptStartEvent.mockImplementation(() => {
+        callOrder.push('setupPromptStartEvent');
+      });
+      mockBedrockClient.setupSystemPromptEvent.mockImplementation(() => {
+        callOrder.push('setupSystemPromptEvent');
+      });
+      mockBedrockClient.setupStartAudioEvent.mockImplementation(() => {
+        callOrder.push('setupStartAudioEvent');
+      });
+      mockBedrockClient.queueTextInputEvents.mockImplementation(() => {
+        callOrder.push('queueTextInputEvents');
+      });
+      mockBedrockClient.initiateSession.mockImplementation(async () => {
+        callOrder.push('initiateSession');
       });
 
       const message = createValidStartMessage();
       await handler.handle(message);
 
-      // Verify events were queued in correct order
+      // Verify events were queued with correct arguments
       expect(mockBedrockClient.setupSessionStartEvent).toHaveBeenCalledWith('test-session-id');
       expect(mockBedrockClient.setupPromptStartEvent).toHaveBeenCalledWith('test-session-id');
       expect(mockBedrockClient.setupSystemPromptEvent).toHaveBeenCalledWith(
@@ -167,9 +202,31 @@ describe('StartMessageHandler', () => {
         'test-session-id',
         expect.any(Object)
       );
+      expect(mockBedrockClient.queueTextInputEvents).toHaveBeenCalledWith(
+        'test-session-id',
+        expect.stringContaining('Please say this greeting to the caller:')
+      );
+
+      // CRITICAL: Verify initiateSession is called AFTER all events are queued
+      // This is essential for speaks-first greeting to work correctly
+      const initiateIndex = callOrder.indexOf('initiateSession');
+      const lastEventIndex = callOrder.indexOf('queueTextInputEvents');
+      expect(initiateIndex).toBeGreaterThan(lastEventIndex);
+      
+      // Verify the complete call order
+      expect(callOrder).toEqual([
+        'createStreamSession',
+        'setupSessionStartEvent',
+        'setupPromptStartEvent',
+        'setupSystemPromptEvent',
+        'setupStartAudioEvent',
+        'queueTextInputEvents',
+        'initiateSession'
+      ]);
     });
 
     it('should register event handlers', async () => {
+      // Mock createStreamSession to make session active
       mockBedrockClient.createStreamSession.mockImplementation(() => {
         mockBedrockClient.isSessionActive.mockReturnValue(true);
         return {} as any;
@@ -189,6 +246,44 @@ describe('StartMessageHandler', () => {
         'audioOutput',
         expect.any(Function)
       );
+    });
+
+    it('should guarantee stream starts only after all events are queued (speaks-first fix)', async () => {
+      let streamStarted = false;
+      let eventsQueuedBeforeStream = true;
+
+      mockBedrockClient.createStreamSession.mockImplementation(() => {
+        mockBedrockClient.isSessionActive.mockReturnValue(true);
+        return {} as any;
+      });
+
+      // Track if events are queued before stream starts
+      mockBedrockClient.setupSessionStartEvent.mockImplementation(() => {
+        if (streamStarted) eventsQueuedBeforeStream = false;
+      });
+      mockBedrockClient.setupPromptStartEvent.mockImplementation(() => {
+        if (streamStarted) eventsQueuedBeforeStream = false;
+      });
+      mockBedrockClient.setupSystemPromptEvent.mockImplementation(() => {
+        if (streamStarted) eventsQueuedBeforeStream = false;
+      });
+      mockBedrockClient.setupStartAudioEvent.mockImplementation(() => {
+        if (streamStarted) eventsQueuedBeforeStream = false;
+      });
+      mockBedrockClient.queueTextInputEvents.mockImplementation(() => {
+        if (streamStarted) eventsQueuedBeforeStream = false;
+      });
+
+      mockBedrockClient.initiateSession.mockImplementation(async () => {
+        streamStarted = true;
+      });
+
+      const message = createValidStartMessage();
+      await handler.handle(message);
+
+      // All events must be queued before stream starts
+      expect(eventsQueuedBeforeStream).toBe(true);
+      expect(streamStarted).toBe(true);
     });
 
     it('should handle missing WebSocket ID', async () => {

@@ -2,6 +2,15 @@
  * Unit tests for TwilioMessageHandler (coordinator)
  */
 
+// Mock dependencies BEFORE imports
+jest.mock('../../../observability/logger');
+jest.mock('../../../security/WebSocketSecurity');
+jest.mock('../../../observability/sessionMetrics');
+jest.mock('../../../audio/AudioBufferManager');
+jest.mock('../../../audio/AudioProcessor');
+jest.mock('../../../observability/safeTracing');
+jest.mock('../../../observability/smartSampling');
+
 import { TwilioMessageHandler } from '../../../handlers/TwilioMessageHandler';
 import { MessageHandlerContext } from '../../../handlers/handlers/BaseMessageHandler';
 import {
@@ -15,16 +24,7 @@ import {
 } from '../../../handlers/types/TwilioMessages';
 import { ExtendedWebSocket } from '../../../types/SharedTypes';
 import { NovaSonicBidirectionalStreamClient } from '../../../client';
-
-// Mock dependencies
-jest.mock('../../../observability/logger');
-jest.mock('../../../security/WebSocketSecurity');
-jest.mock('../../../observability/sessionMetrics');
-jest.mock('../../../audio/AudioBufferManager');
-jest.mock('../../../audio/AudioProcessor');
-jest.mock('../../../resilience');
-jest.mock('../../../observability/safeTracing');
-jest.mock('../../../observability/smartSampling');
+import * as resilience from '../../../resilience';
 
 describe('TwilioMessageHandler', () => {
   let handler: TwilioMessageHandler;
@@ -34,6 +34,20 @@ describe('TwilioMessageHandler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    // Mock circuit breaker
+    const mockCircuitBreaker = {
+      execute: jest.fn((fn) => Promise.resolve(fn())),
+      reset: jest.fn(),
+      getState: jest.fn().mockReturnValue('CLOSED'),
+      getMetrics: jest.fn().mockReturnValue({
+        totalCalls: 0,
+        successfulCalls: 0,
+        failedCalls: 0,
+        rejectedCalls: 0
+      })
+    };
+    jest.spyOn(resilience, 'getBedrockCircuitBreaker').mockReturnValue(mockCircuitBreaker as any);
 
     // Re-setup mocks after clearAllMocks
     const { smartSampler } = require('../../../observability/smartSampling');
@@ -77,6 +91,8 @@ describe('TwilioMessageHandler', () => {
       setupPromptStartEvent: jest.fn(),
       setupSystemPromptEvent: jest.fn(),
       setupStartAudioEvent: jest.fn(),
+      queueTextInputEvents: jest.fn(),
+      getSessionData: jest.fn().mockReturnValue({ queue: [] }),
       registerEventHandler: jest.fn(),
       streamAudioChunk: jest.fn().mockResolvedValue(undefined),
       sendContentEnd: jest.fn(),

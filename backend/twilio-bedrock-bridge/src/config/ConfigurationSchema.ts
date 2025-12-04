@@ -65,7 +65,7 @@ export const CONFIG_SCHEMA: ConfigSchema = {
   'bedrock.modelId': {
     type: 'string',
     required: false,
-    default: 'amazon.nova-sonic-v1:0',
+    default: 'amazon.nova-2-sonic-v1:0',
     validation: (value: string) => value.length > 0,
     description: 'Bedrock model identifier',
   },
@@ -350,6 +350,15 @@ export const CONFIG_SCHEMA: ConfigSchema = {
     validation: (value: number) => value >= 0 && value <= 2,
     description: 'Temperature parameter (0.0-2.0)',
   },
+
+  // Conversation Configuration
+  'conversation.greetingMessage': {
+    type: 'string',
+    required: false,
+    default: 'Hi, how can I help you today?',
+    validation: (value: string) => value.length > 0 && value.length <= 1000,
+    description: 'Greeting message that Nova Sonic will speak when a call starts (1-1000 chars)',
+  },
 };
 
 /**
@@ -371,7 +380,6 @@ export function getConfigKeyFromEnvVar(envVar: string): string | undefined {
     'AWS_REGION': 'aws.region',
     'AWS_PROFILE_NAME': 'aws.profileName',
     'BEDROCK_REGION': 'bedrock.region',
-    'BEDROCK_MODEL_ID': 'bedrock.modelId',
     'TWILIO_AUTH_TOKEN': 'twilio.authToken',
     'TWILIO_ACCOUNT_SID': 'twilio.accountSid',
     'PUBLIC_WS_HOST': 'twilio.publicWsHost',
@@ -385,6 +393,7 @@ export function getConfigKeyFromEnvVar(envVar: string): string | undefined {
     'TEMPERATURE': 'inference.temperature',
     'ENABLE_XRAY': 'tracing.enableXRay',
     'CLOUDWATCH_ENABLED': 'cloudWatch.enabled',
+    'GREETING_MESSAGE': 'conversation.greetingMessage',
   };
 
   return envVarMappings[envVar];

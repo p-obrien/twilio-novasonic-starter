@@ -40,7 +40,7 @@ const TEST_DEFAULTS: Record<string, any> = {
   'server.port': 8080,
   'aws.region': 'us-east-1',
   'bedrock.region': 'us-east-1',
-  'bedrock.modelId': 'amazon.nova-sonic-v1:0',
+  'bedrock.modelId': 'amazon.nova-2-sonic-v1:0',
   'logging.level': 'INFO', // Use INFO as reasonable default for both tests and ECS
   'environment.nodeEnv': 'test',
   'environment.serviceName': 'twilio-bedrock-bridge-test',
@@ -175,6 +175,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
       inference: this.loadInferenceConfig(),
       audio: this.loadAudioConfig(),
       integration: this.loadIntegrationConfig(),
+      conversation: this.loadConversationConfig(),
     };
 
     // Apply test defaults if in test environment
@@ -219,7 +220,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
     const awsRegion = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || DEFAULT_CONFIG.aws!.region;
     return {
       region: process.env.BEDROCK_REGION || awsRegion,
-      modelId: process.env.BEDROCK_MODEL_ID || DEFAULT_CONFIG.bedrock!.modelId,
+      modelId: DEFAULT_CONFIG.bedrock!.modelId, // Hardcoded to prevent environment variable override
       requestTimeout: this.parseNumber(process.env.BEDROCK_REQUEST_TIMEOUT, DEFAULT_CONFIG.bedrock!.requestTimeout),
       sessionTimeout: this.parseNumber(process.env.BEDROCK_SESSION_TIMEOUT, DEFAULT_CONFIG.bedrock!.sessionTimeout),
       maxAudioQueueSize: this.parseNumber(process.env.MAX_AUDIO_QUEUE_SIZE, DEFAULT_CONFIG.bedrock!.maxAudioQueueSize),
@@ -408,6 +409,12 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
         agentInvocationTimeoutMs: this.parseNumber(process.env.AGENT_INVOCATION_TIMEOUT_MS, DEFAULT_CONFIG.integration!.thresholds.agentInvocationTimeoutMs),
         maxRetries: this.parseNumber(process.env.MAX_RETRIES, DEFAULT_CONFIG.integration!.thresholds.maxRetries),
       },
+    };
+  }
+
+  private loadConversationConfig() {
+    return {
+      greetingMessage: process.env.GREETING_MESSAGE || DEFAULT_CONFIG.conversation!.greetingMessage,
     };
   }
 
@@ -841,6 +848,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
   public get inference() { return this.config.inference; }
   public get audio() { return this.config.audio; }
   public get integration() { return this.config.integration; }
+  public get conversation() { return this.config.conversation; }
 }
 
 // Export singleton instance

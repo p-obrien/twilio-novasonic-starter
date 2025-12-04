@@ -46,6 +46,12 @@ export interface StreamClientInterface {
   sendPromptEnd(sessionId: string): void;
   sendSessionEnd(sessionId: string): void;
   
+  // Text input for speaks-first functionality
+  sendTextInput?(sessionId: string, textContent: string): void;
+  
+  // Session data access for speaks-first config
+  getSessionData?(sessionId: string): { speaksFirst?: boolean; initialPrompt?: string } | undefined;
+  
   // Real-time conversation features (optional methods)
   enableRealtimeInterruption?(sessionId: string): void;
   handleUserInterruption?(sessionId: string): void;
@@ -277,6 +283,60 @@ export class UnifiedStreamSession extends BaseSession {
           { audioConfig }
         );
         throw new SessionError('Failed to setup audio streaming', this.sessionId, error as Error);
+      }
+    }, { 'session.id': this.sessionId });
+  }
+
+  /**
+   * Sends text input to trigger model response (used for speaks-first greeting)
+   * 
+   * This allows Nova Sonic 2 to generate an immediate response without waiting
+   * for user audio input, enabling "speaks first" functionality.
+   * 
+   * @param textContent - The text content to send (e.g., "hi" to trigger greeting)
+   */
+  public sendTextInput(textContent: string): void {
+    CorrelationIdManager.traceWithCorrelation('session.send_text_input', () => {
+      try {
+        this.ensureSessionActive();
+        
+        logger.info(`SPEAKS-FIRST DEBUG: UnifiedStreamSession.sendTextInput called`, {
+          sessionId: this.sessionId,
+          textContent,
+          textLength: textContent.length
+        });
+        
+        if (typeof this.client.sendTextInput !== 'function') {
+          throw new SessionError('Client does not support sendTextInput', this.sessionId);
+        }
+        
+        if (typeof textContent !== 'string' || textContent.length === 0) {
+          throw new SessionError('Text content must be a non-empty string', this.sessionId);
+        }
+        
+        logger.debug(`SPEAKS-FIRST DEBUG: Calling client.sendTextInput`);
+        this.client.sendTextInput(this.sessionId, textContent);
+        this.updateActivity();
+        
+        logger.info(`SPEAKS-FIRST DEBUG: Text input sent for speaks-first successfully`, {
+          sessionId: this.sessionId,
+          textLength: textContent.length,
+          correlationId: CorrelationIdManager.getCurrentCorrelationId()
+        });
+      } catch (error) {
+        this.incrementErrorCount();
+        logger.error(`SPEAKS-FIRST DEBUG: Error sending text input`, {
+          sessionId: this.sessionId,
+          error: (error as Error)?.message,
+          stack: (error as Error)?.stack
+        });
+        this.errorHandler.handleError(
+          error as Error,
+          this.sessionId,
+          'send_text_input',
+          { textLength: textContent.length }
+        );
+        throw new SessionError('Failed to send text input', this.sessionId, error as Error);
       }
     }, { 'session.id': this.sessionId });
   }

@@ -32,7 +32,7 @@ jest.mock('../utils/correlationId', () => ({
 
 describe('StreamSession Edge Cases', () => {
   let mockClient: jest.Mocked<StreamClientInterface>;
-  let session: StreamSession;
+  let session: UnifiedStreamSession;
   const sessionId = 'edge-case-session-id';
 
   beforeEach(() => {
@@ -53,13 +53,19 @@ describe('StreamSession Edge Cases', () => {
       streamAudioRealtime: jest.fn().mockResolvedValue(undefined)
     };
 
-    session = new StreamSession(sessionId, mockClient);
+    const config = {
+      sessionId,
+      maxQueueSize: 100,
+      processingTimeout: 30000,
+      enableMetrics: true
+    };
+    session = new UnifiedStreamSession(config, mockClient);
     jest.clearAllMocks();
   });
 
   afterEach(async () => {
     // Ensure session is properly closed after each test
-    if (session && session.isSessionActive()) {
+    if (session && session.isActive) {
       try {
         await session.close();
       } catch (error) {
@@ -70,38 +76,44 @@ describe('StreamSession Edge Cases', () => {
 
   describe('Constructor Edge Cases', () => {
     it('should handle empty string session ID', () => {
-      expect(() => new StreamSession('', mockClient)).toThrow('Session ID must be a non-empty string');
+      const config = { sessionId: '', maxQueueSize: 100, processingTimeout: 30000, enableMetrics: true };
+      expect(() => new UnifiedStreamSession(config, mockClient)).toThrow('Session ID must be a non-empty string');
     });
 
     it('should handle whitespace-only session ID', () => {
-      // The implementation may accept whitespace-only strings, so let's test that it doesn't crash
-      expect(() => new StreamSession('   ', mockClient)).not.toThrow();
+      // Whitespace-only session IDs should be rejected (trimmed length is 0)
+      const config = { sessionId: '   ', maxQueueSize: 100, processingTimeout: 30000, enableMetrics: true };
+      expect(() => new UnifiedStreamSession(config, mockClient)).toThrow('Session ID must be a non-empty string');
     });
 
     it('should handle null session ID', () => {
-      expect(() => new StreamSession(null as any, mockClient)).toThrow('Session ID must be a non-empty string');
+      const config = { sessionId: null as any, maxQueueSize: 100, processingTimeout: 30000, enableMetrics: true };
+      expect(() => new UnifiedStreamSession(config, mockClient)).toThrow('Session ID must be a non-empty string');
     });
 
     it('should handle undefined session ID', () => {
-      expect(() => new StreamSession(undefined as any, mockClient)).toThrow('Session ID must be a non-empty string');
+      const config = { sessionId: undefined as any, maxQueueSize: 100, processingTimeout: 30000, enableMetrics: true };
+      expect(() => new UnifiedStreamSession(config, mockClient)).toThrow('Session ID must be a non-empty string');
     });
 
     it('should handle null client', () => {
-      expect(() => new StreamSession(sessionId, null as any)).toThrow('Client interface is required');
+      const config = { sessionId, maxQueueSize: 100, processingTimeout: 30000, enableMetrics: true };
+      expect(() => new UnifiedStreamSession(config, null as any)).toThrow('Client interface is required');
     });
 
     it('should handle undefined client', () => {
-      expect(() => new StreamSession(sessionId, undefined as any)).toThrow('Client interface is required');
+      const config = { sessionId, maxQueueSize: 100, processingTimeout: 30000, enableMetrics: true };
+      expect(() => new UnifiedStreamSession(config, undefined as any)).toThrow('Client interface is required');
     });
 
     it('should handle invalid buffer configurations', () => {
+      const config = { sessionId, maxQueueSize: -1, processingTimeout: 30000, enableMetrics: true };
       const invalidOptions = {
-        maxQueueSize: -1,
         maxChunksPerBatch: 0,
         maxOutputBufferSize: -5
       };
 
-      expect(() => new StreamSession(sessionId, mockClient, invalidOptions))
+      expect(() => new UnifiedStreamSession(config, mockClient, invalidOptions))
         .toThrow('Buffer size configurations must be positive integers');
     });
 
@@ -118,13 +130,14 @@ describe('StreamSession Edge Cases', () => {
         sendSessionEnd: jest.fn()
       };
 
-      expect(() => new StreamSession(sessionId, minimalClient)).not.toThrow();
+      const config = { sessionId, maxQueueSize: 100, processingTimeout: 30000, enableMetrics: true };
+      expect(() => new UnifiedStreamSession(config, minimalClient)).not.toThrow();
     });
   });
 
   describe('Basic Session Operations', () => {
     it('should report active status when newly created', () => {
-      expect(session.isSessionActive()).toBe(true);
+      expect(session.isActive).toBe(true);
     });
 
     it('should allow getting audio queue stats', () => {
@@ -153,7 +166,7 @@ describe('StreamSession Edge Cases', () => {
 
     it('should handle session close gracefully', async () => {
       await expect(session.close()).resolves.not.toThrow();
-      // Note: session.isSessionActive() checks both internal state and client state
+      // Note: session.isActive checks both internal state and client state
       // In this mock setup, the client always returns true, so we just verify close doesn't throw
     });
   });

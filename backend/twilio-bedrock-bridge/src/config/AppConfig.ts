@@ -43,10 +43,22 @@ export interface AppConfig {
   integration: IntegrationConfig;
 }
 
+import { configManager } from './ConfigurationManager';
+
 /**
  * @deprecated Use configManager from './ConfigurationManager' instead
+ * Provides backward compatibility wrapper
  */
-export const config = undefined as any;
+export const config = {
+  getConfig: () => configManager.getAll(),
+  get server() { return configManager.get('server'); },
+  get aws() { return configManager.get('aws'); },
+  get bedrock() { return configManager.get('bedrock'); },
+  get twilio() { return configManager.get('twilio'); },
+  get logging() { return configManager.get('logging'); },
+  get inference() { return configManager.get('inference'); },
+  get integration() { return configManager.get('integration'); },
+};
 
 /**
  * @deprecated Use configManager from './ConfigurationManager' instead

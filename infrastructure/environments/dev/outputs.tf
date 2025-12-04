@@ -66,7 +66,7 @@ output "target_group_arn" {
   value       = module.alb.target_group_arn
 }
 
-# Knowledge Base Outputs (conditional)
+# Knowledge Base Outputs
 output "knowledge_base_id" {
   description = "ID of the Bedrock Knowledge Base (if created)"
   value       = var.create_knowledge_base ? module.knowledge_base[0].knowledge_base_id : null
@@ -92,7 +92,7 @@ output "knowledge_base_database_name" {
   value       = var.create_knowledge_base ? module.knowledge_base[0].database_name : null
 }
 
-# Agent Outputs (conditional)
+# Agent Outputs
 output "agent_id" {
   description = "ID of the Bedrock Agent (if created)"
   value       = var.create_agent ? module.agent[0].agent_id : null

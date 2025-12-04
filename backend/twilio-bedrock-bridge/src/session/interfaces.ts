@@ -102,6 +102,12 @@ export interface SessionConfig {
     readonly parentId?: string;
     readonly traceId?: string;
   };
+  
+  /** Whether Nova Sonic should speak first (generate greeting before user input) */
+  readonly speaksFirst?: boolean;
+  
+  /** Initial prompt to trigger speaks-first greeting */
+  readonly initialPrompt?: string;
 }
 
 /**
@@ -190,6 +196,12 @@ export interface SessionCreationOptions {
     parentId?: string;
     traceId?: string;
   };
+  
+  /** Whether Nova Sonic should speak first (generate greeting before user input) */
+  speaksFirst?: boolean;
+  
+  /** Initial prompt to trigger speaks-first greeting */
+  initialPrompt?: string;
 }
 
 /**
@@ -299,6 +311,11 @@ export abstract class BaseSession implements ISession {
   protected eventHandlers: Map<StreamEventType, EventHandler[]> = new Map();
 
   constructor(config: SessionConfig) {
+    // Validate session ID
+    if (!config.sessionId || typeof config.sessionId !== 'string' || config.sessionId.trim().length === 0) {
+      throw new Error('Session ID must be a non-empty string');
+    }
+    
     this.config = { ...config };
     this.createdAtTimestamp = Date.now();
     this.lastActivityTimestamp = this.createdAtTimestamp;

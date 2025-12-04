@@ -65,8 +65,8 @@ resource "aws_iam_role_policy" "ecs_task_bedrock_policy" {
         ]
         Resource = [
           "*",
-          "arn:aws:bedrock:*::foundation-model/amazon.nova-sonic-v1:0",
-          "arn:aws:bedrock:*:*:foundation-model/amazon.nova-sonic-v1:0"
+          "arn:aws:bedrock:*::foundation-model/amazon.nova-2-sonic-v1:0",
+          "arn:aws:bedrock:*:*:foundation-model/amazon.nova-2-sonic-v1:0"
         ]
       },
       {
@@ -432,8 +432,8 @@ resource "aws_ecs_task_definition" "twilio_media_stream" {
           value = "production"
         },
         {
-          name  = "BEDROCK_MODEL_ID"
-          value = "amazon.nova-sonic-v1:0"
+          name  = "GREETING_MESSAGE"
+          value = var.greeting_message
         },
         {
           name  = "OTEL_SERVICE_NAME"

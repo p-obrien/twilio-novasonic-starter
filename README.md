@@ -1,6 +1,6 @@
 # Twilio Nova Sonic Starter
 
-Enterprise-grade real-time bridge service that connects Twilio Voice calls to AWS Bedrock Nova Sonic for AI-powered voice conversations with knowledge base integration and intelligent agents.
+Enterprise-grade real-time bridge service that connects Twilio Voice calls to AWS Bedrock Nova Sonic 2 for AI-powered voice conversations with knowledge base integration and intelligent agents. Features native speaks-first capability for natural conversation initiation.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -9,7 +9,8 @@ This repository contains a complete production-ready solution with advanced AI c
 ## Features
 
 ### Core Voice Capabilities
-- **Real-time Bidirectional Streaming**: Ultra-low latency audio streaming between Twilio and AWS Bedrock Nova Sonic
+- **Real-time Bidirectional Streaming**: Ultra-low latency audio streaming between Twilio and AWS Bedrock Nova Sonic 2
+- **Native Speaks-First**: Nova Sonic 2 initiates conversations naturally using AI-generated greetings with configurable initial prompts
 - **Advanced Session Management**: Concurrent session handling with automatic cleanup and resource management
 - **Intelligent Audio Processing**: Automatic format conversion, quality analysis, and adaptive buffering
 - **Real-time Interruption Support**: Natural conversation flow with voice activity detection and model interruption
@@ -47,16 +48,23 @@ This repository contains a complete production-ready solution with advanced AI c
 
 ### Voice Processing Flow
 ```
-┌─────────────┐    WebSocket     ┌─────────────────┐    Bidirectional    ┌─────────────┐
-│   Twilio    │ ◄──────────────► │  Bridge Service │ ◄─────────────────► │ AWS Bedrock │
-│   Voice     │   (Media Stream) │                 │   (Nova Sonic API)  │ Nova Sonic  │
-└─────────────┘                  └─────────────────┘                     └─────────────┘
-                                          │
+┌─────────────┐    WebSocket     ┌─────────────────┐    Bidirectional    ┌──────────────┐
+│   Twilio    │ ◄──────────────► │  Bridge Service │ ◄─────────────────► │ AWS Bedrock  │
+│   Voice     │   (Media Stream) │                 │   (Nova Sonic API)  │ Nova Sonic 2 │
+└─────────────┘                  └─────────────────┘                     └──────────────┘
+                                          │                                      │
+                                          ▼                                      │
+                                 ┌─────────────────┐                            │
+                                 │   Observability │                            │
+                                 │   CloudWatch    │                            │
+                                 │   X-Ray Tracing │                            │
+                                 └─────────────────┘                            │
+                                                                                 │
+                                          ┌──────────────────────────────────────┘
                                           ▼
                                  ┌─────────────────┐
-                                 │   Observability │
-                                 │   CloudWatch    │
-                                 │   X-Ray Tracing │
+                                 │  Speaks-First   │
+                                 │  AI Greetings   │
                                  └─────────────────┘
 ```
 
@@ -328,11 +336,11 @@ aws ce get-cost-and-usage --time-period Start=2024-01-01,End=2024-01-31
 - [x] Aurora Serverless vector storage (95% cost savings)
 - [x] Automatic document ingestion with S3 triggers
 - [x] Bedrock Agent integration with custom actions
+- [x] **Nova Sonic 2 Migration - Native speaks-first with AI-generated greetings**
 - [x] Production-ready infrastructure with auto-scaling
 - [x] Comprehensive monitoring and observability
 
 ### In Progress
-- [ ] Make Nova Sonic Speak First (High Priority)
 - [ ] Enhanced conversation memory with knowledge context
 - [ ] Multi-language support with automatic detection
 

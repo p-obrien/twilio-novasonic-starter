@@ -13,7 +13,7 @@ export const CLIENT_DEFAULTS = {
 
   // AWS Configuration
   DEFAULT_REGION: "us-east-1",
-  MODEL_ID: "amazon.nova-sonic-v1:0",
+  MODEL_ID: "amazon.nova-2-sonic-v1:0",
 
   // Session Configuration
   MAX_AUDIO_QUEUE_SIZE: 200,

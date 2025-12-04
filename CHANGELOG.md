@@ -14,14 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Conversation analytics and insights dashboard
 
 ### Changed
-- Make Nova Sonic speak first (in progress)
+- **Nova Sonic 2 Migration**: Upgraded to amazon.nova-sonic-v2:0 with native speaks-first capability
+  - Replaced pre-recorded greeting audio injection with AI-generated greetings
+  - Removed GreetingAudioLoader and GreetingInjector components (~590 lines of code)
+  - Simplified session initialization with native speaks-first configuration
+  - Improved greeting latency and naturalness through model-generated responses
 - Improved agent orchestration capabilities
 
 ## [0.1.0] - 2025-01-16
 
 ### Added
 - **Core Voice Capabilities**
-  - Real-time bidirectional streaming between Twilio Voice and AWS Bedrock Nova Sonic
+  - Real-time bidirectional streaming between Twilio Voice and AWS Bedrock Nova Sonic 2
+  - Native speaks-first with AI-generated greetings (no pre-recorded audio required)
   - Advanced session management with automatic cleanup and resource management
   - Intelligent audio processing with format conversion and quality analysis
   - Real-time interruption support with voice activity detection
