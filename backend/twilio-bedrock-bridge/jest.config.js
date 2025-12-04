@@ -20,6 +20,9 @@ module.exports = {
   // Fast test execution
   testTimeout: 5000, // 5 seconds max per test
   
+  // Slow test threshold reporting
+  slowTestThreshold: 1000, // Report tests taking longer than 1 second
+  
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
       tsconfig: 'tsconfig.test.json',

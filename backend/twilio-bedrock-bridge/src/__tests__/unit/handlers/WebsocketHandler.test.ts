@@ -3,7 +3,7 @@
  */
 
 // Mock observability modules that are directly imported in WebsocketHandler
-jest.mock('../observability/safeTracing', () => {
+jest.mock('../../../observability/safeTracing', () => {
   const mockSpan = {
     setAttributes: jest.fn(),
     recordException: jest.fn(),
@@ -21,7 +21,7 @@ jest.mock('../observability/safeTracing', () => {
   };
 });
 
-jest.mock('../observability/smartSampling', () => {
+jest.mock('../../../observability/smartSampling', () => {
   const mockSpan = {
     setAttributes: jest.fn(),
     recordException: jest.fn(),
@@ -38,11 +38,11 @@ jest.mock('../observability/smartSampling', () => {
   };
 });
 
-jest.mock('../utils/asyncCorrelation', () => ({
+jest.mock('../../../utils/asyncCorrelation', () => ({
   setTimeoutWithCorrelation: jest.fn((fn, delay) => setTimeout(fn, delay))
 }));
 
-jest.mock('../observability/metrics', () => ({
+jest.mock('../../../observability/metrics', () => ({
   metricsUtils: {
     recordWebSocketConnection: jest.fn(),
     recordWebSocketMessage: jest.fn(),
@@ -51,7 +51,7 @@ jest.mock('../observability/metrics', () => ({
   }
 }));
 
-jest.mock('../security/WebSocketSecurity', () => ({
+jest.mock('../../../security/WebSocketSecurity', () => ({
   webSocketSecurity: {
     validateConnection: jest.fn().mockReturnValue({
       isValid: true,
@@ -68,14 +68,14 @@ jest.mock('../security/WebSocketSecurity', () => ({
   }
 }));
 
-jest.mock('../observability/sessionMetrics', () => ({
+jest.mock('../../../observability/sessionMetrics', () => ({
   SessionMetrics: {
     createSession: jest.fn(),
     endSession: jest.fn()
   }
 }));
 
-jest.mock('../observability/websocketMetrics', () => ({
+jest.mock('../../../observability/websocketMetrics', () => ({
   WebSocketMetrics: {
     onConnection: jest.fn(),
     onDisconnection: jest.fn()
@@ -84,7 +84,7 @@ jest.mock('../observability/websocketMetrics', () => ({
 
 import { WebSocketServer } from 'ws';
 import http from 'http';
-import { initWebsocketServer } from '../handlers/WebsocketHandler';
+import { initWebsocketServer } from '../../../handlers/WebsocketHandler';
 import type {
   WebSocketHandlerDependencies,
   WebSocketSecurityService,
@@ -94,13 +94,13 @@ import type {
   AudioProcessors,
   Logger,
   CorrelationManagerService
-} from '../handlers/WebsocketHandlerTypes';
-import type { NovaSonicBidirectionalStreamClient } from '../client';
-import { smartSampler } from '../observability/smartSampling';
-import { safeTrace } from '../observability/safeTracing';
-import { webSocketSecurity } from '../security/WebSocketSecurity';
-import { SessionMetrics } from '../observability/sessionMetrics';
-import { WebSocketMetrics } from '../observability/websocketMetrics';
+} from '../../../handlers/WebsocketHandlerTypes';
+import type { NovaSonicBidirectionalStreamClient } from '../../../client';
+import { smartSampler } from '../../../observability/smartSampling';
+import { safeTrace } from '../../../observability/safeTracing';
+import { webSocketSecurity } from '../../../security/WebSocketSecurity';
+import { SessionMetrics } from '../../../observability/sessionMetrics';
+import { WebSocketMetrics } from '../../../observability/websocketMetrics';
 
 // Mock WebSocketServer
 jest.mock('ws');
