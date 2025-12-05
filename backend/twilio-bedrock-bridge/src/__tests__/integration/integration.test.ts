@@ -107,7 +107,7 @@ describe('Integration Tests', () => {
     process.env.LOG_LEVEL = 'ERROR'; // Reduce log noise in tests
 
     // Get the mocked webSocketSecurity
-    const { webSocketSecurity } = require('../security/WebSocketSecurity');
+    const { webSocketSecurity } = require('../../security/WebSocketSecurity');
     mockWebSocketSecurity = webSocketSecurity;
 
     // Get the mocked Twilio validator

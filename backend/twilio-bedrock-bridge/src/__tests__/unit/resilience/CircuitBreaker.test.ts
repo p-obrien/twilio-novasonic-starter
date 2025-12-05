@@ -10,8 +10,16 @@
 
 import { CircuitBreaker, CircuitBreakerState } from '../../../resilience/CircuitBreaker';
 import { CircuitBreakerOpenError } from '../../../errors/ClientErrors';
+import { useFakeTimers, useRealTimers, advanceTimersByTime } from '../../utils/TimerTestUtils';
 
 describe('CircuitBreaker', () => {
+  beforeEach(() => {
+    useFakeTimers();
+  });
+
+  afterEach(() => {
+    useRealTimers();
+  });
   describe('State Transitions', () => {
     describe('CLOSED → OPEN', () => {
       it('should transition to OPEN after threshold failures', async () => {
@@ -81,8 +89,8 @@ describe('CircuitBreaker', () => {
         // Requests should be rejected immediately
         await expect(cb.execute(failingFn)).rejects.toThrow(CircuitBreakerOpenError);
 
-        // Wait for timeout
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Wait for timeout using fake timers
+        advanceTimersByTime(150);
 
         // Next request should trigger HALF_OPEN state
         const successFn = jest.fn().mockResolvedValue('success');
@@ -132,8 +140,8 @@ describe('CircuitBreaker', () => {
         await expect(cb.execute(failingFn)).rejects.toThrow();
         expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
 
-        // Wait for timeout
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Wait for timeout using fake timers
+        advanceTimersByTime(150);
 
         // First success triggers HALF_OPEN
         await cb.execute(successFn);
@@ -162,8 +170,8 @@ describe('CircuitBreaker', () => {
         await expect(cb.execute(failingFn)).rejects.toThrow();
         expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
 
-        // Wait for timeout
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Wait for timeout using fake timers
+        advanceTimersByTime(150);
 
         // First success triggers HALF_OPEN
         await cb.execute(successFn);
@@ -191,7 +199,7 @@ describe('CircuitBreaker', () => {
         let callCount = 0;
         const slowSuccessFn = jest.fn().mockImplementation(async () => {
           callCount++;
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // Simulate slow operation without setTimeout (fake timers don't work well with async mocks)
           return 'success';
         });
 
@@ -200,8 +208,8 @@ describe('CircuitBreaker', () => {
         await expect(cb.execute(failingFn)).rejects.toThrow();
         expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
 
-        // Wait for timeout
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Wait for timeout using fake timers
+        advanceTimersByTime(150);
 
         // Start two concurrent requests in HALF_OPEN
         const promise1 = cb.execute(slowSuccessFn);
@@ -292,8 +300,8 @@ describe('CircuitBreaker', () => {
         await expect(cb.execute(failingFn)).rejects.toThrow();
         expect(cb.getState()).toBe(CircuitBreakerState.OPEN);
 
-        // Wait for timeout
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Wait for timeout using fake timers
+        advanceTimersByTime(150);
 
         // State should transition on next request
         const successFn = jest.fn().mockResolvedValue('success');
@@ -373,8 +381,8 @@ describe('CircuitBreaker', () => {
         CircuitBreakerState.OPEN
       );
 
-      // Wait for timeout and trigger OPEN → HALF_OPEN
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Wait for timeout and trigger OPEN → HALF_OPEN using fake timers
+      advanceTimersByTime(150);
 
       const successFn = jest.fn().mockResolvedValue('success');
       await cb.execute(successFn);

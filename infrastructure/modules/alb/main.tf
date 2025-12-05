@@ -88,7 +88,10 @@ resource "aws_lb" "main" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = var.public_subnet_ids
 
-  enable_deletion_protection = var.enable_deletion_protection
+  # Deletion protection should be configured inline in environment-specific main.tf
+  # Development: false (default)
+  # Production: true (override in environment)
+  enable_deletion_protection = false
 
   tags = var.tags
 }

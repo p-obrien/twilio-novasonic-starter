@@ -14,6 +14,7 @@ describe('AudioBuffer', () => {
 
   beforeEach(() => {
     // Create mock WebSocket with additional methods for testing
+    // Note: WebSocket is mocked because it's an external service boundary
     mockWebSocket = {
       readyState: 1, // OPEN
       twilioStreamSid: 'test-stream-sid',
@@ -22,11 +23,12 @@ describe('AudioBuffer', () => {
       on: jest.fn()
     } as WebSocketLike & { on: jest.Mock };
 
-    // Create isolated buffer pool for each test
+    // Use real buffer pool for testing actual buffer operations
+    // Create isolated instance to avoid test interference
     bufferPool = BufferPool.create({ initialSize: 5, maxSize: 20 });
     jest.spyOn(BufferPool, 'getInstance').mockReturnValue(bufferPool);
 
-    // Mock timers
+    // Mock timers for deterministic timing tests
     jest.useFakeTimers();
   });
 
@@ -64,7 +66,7 @@ describe('AudioBuffer', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
 
       // Add audio to start the buffer
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       // Advance timer to trigger frame send
       jest.advanceTimersByTime(25); // Give a bit more time
@@ -77,7 +79,7 @@ describe('AudioBuffer', () => {
   describe('Audio Addition', () => {
     it('should add audio data to buffer', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      const audioData = createTestBuffer(160);
+      const audioData = AudioTestUtils.createMuLawBuffer(160);
 
       buffer.addAudio(audioData);
 
@@ -90,8 +92,8 @@ describe('AudioBuffer', () => {
     it('should accumulate multiple audio chunks', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
 
-      buffer.addAudio(createTestBuffer(80));
-      buffer.addAudio(createTestBuffer(80));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(80));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(80));
 
       const status = buffer.getStatus();
       expect(status.bufferBytes).toBe(160);
@@ -106,7 +108,7 @@ describe('AudioBuffer', () => {
 
       // Add more data than the buffer can hold
       for (let i = 0; i < 10; i++) {
-        buffer.addAudio(createTestBuffer(160)); // Each chunk is 20ms
+        buffer.addAudio(AudioTestUtils.createMuLawBuffer(160)); // Each chunk is 20ms
       }
 
       const status = buffer.getStatus();
@@ -118,7 +120,7 @@ describe('AudioBuffer', () => {
 
       expect(buffer.getStatus().isActive).toBe(false);
 
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       expect(buffer.getStatus().isActive).toBe(true);
     });
@@ -127,7 +129,7 @@ describe('AudioBuffer', () => {
   describe('Frame Transmission', () => {
     it('should send frames at configured intervals', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(320)); // 2 frames worth
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(320)); // 2 frames worth
 
       // Should not send immediately
       expect(mockWebSocket.send).not.toHaveBeenCalled();
@@ -143,7 +145,7 @@ describe('AudioBuffer', () => {
 
     it('should send frames with correct Twilio format', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       jest.advanceTimersByTime(25);
 
@@ -161,7 +163,7 @@ describe('AudioBuffer', () => {
 
     it('should wait for sufficient data before sending', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(80)); // Half a frame
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(80)); // Half a frame
 
       jest.advanceTimersByTime(25);
 
@@ -169,7 +171,7 @@ describe('AudioBuffer', () => {
       expect(mockWebSocket.send).not.toHaveBeenCalled();
 
       // Add more data to complete frame
-      buffer.addAudio(createTestBuffer(80));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(80));
       jest.advanceTimersByTime(25);
 
       expect(mockWebSocket.send).toHaveBeenCalledTimes(1);
@@ -177,7 +179,7 @@ describe('AudioBuffer', () => {
 
     it('should handle WebSocket send errors gracefully', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       // Mock send to call error callback
       (mockWebSocket.send as jest.Mock).mockImplementation((...args: any[]) => {
@@ -195,7 +197,7 @@ describe('AudioBuffer', () => {
 
     it('should stop transmission when WebSocket closes', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(320));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(320));
 
       // Close WebSocket
       mockWebSocket.readyState = 3; // CLOSED
@@ -210,7 +212,7 @@ describe('AudioBuffer', () => {
   describe('Buffer Management', () => {
     it('should maintain correct buffer levels during transmission', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(480)); // 3 frames worth
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(480)); // 3 frames worth
 
       expect(buffer.getStatus().bufferBytes).toBe(480);
 
@@ -229,7 +231,7 @@ describe('AudioBuffer', () => {
         intervalMs: 40
       };
       const buffer = new AudioBuffer(mockWebSocket, 'test-session', options);
-      buffer.addAudio(createTestBuffer(320));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(320));
 
       jest.advanceTimersByTime(45);
 
@@ -239,7 +241,7 @@ describe('AudioBuffer', () => {
 
     it('should report buffer underruns to quality analyzer', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(80)); // Less than one frame
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(80)); // Less than one frame
 
       // Try to send when buffer is low
       jest.advanceTimersByTime(20);
@@ -252,7 +254,7 @@ describe('AudioBuffer', () => {
   describe('Stop and Flush', () => {
     it('should stop transmission and clear timer', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       expect(buffer.getStatus().isActive).toBe(true);
 
@@ -268,7 +270,7 @@ describe('AudioBuffer', () => {
 
     it('should send completion mark on stop', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       buffer.stop('test_stop');
 
@@ -279,7 +281,7 @@ describe('AudioBuffer', () => {
 
     it('should flush remaining audio data', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(240)); // 1.5 frames
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(240)); // 1.5 frames
 
       buffer.flush();
 
@@ -299,7 +301,7 @@ describe('AudioBuffer', () => {
 
     it('should pad partial frames with silence during flush', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(100)); // Partial frame
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(100)); // Partial frame
 
       buffer.flush();
 
@@ -325,7 +327,7 @@ describe('AudioBuffer', () => {
   describe('Timing and Performance', () => {
     it('should detect and log timer delays', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       // Simulate delayed timer execution
       jest.advanceTimersByTime(30); // 10ms delay
@@ -339,7 +341,7 @@ describe('AudioBuffer', () => {
         intervalMs: 5 // Very fast interval
       };
       const buffer = new AudioBuffer(mockWebSocket, 'test-session', options);
-      buffer.addAudio(createTestBuffer(800)); // Many frames worth
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(800)); // Many frames worth
 
       // Advance in small increments
       for (let i = 0; i < 10; i++) {
@@ -351,7 +353,7 @@ describe('AudioBuffer', () => {
 
     it('should use setImmediate for non-blocking sends', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       jest.advanceTimersByTime(25);
 
@@ -363,7 +365,7 @@ describe('AudioBuffer', () => {
   describe('WebSocket Integration', () => {
     it('should handle WebSocket state changes', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       // Simulate WebSocket close event
       const mockOn = (mockWebSocket as any).on as jest.Mock;
@@ -380,7 +382,7 @@ describe('AudioBuffer', () => {
 
     it('should handle WebSocket error events', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       // Simulate WebSocket error event
       const mockOn = (mockWebSocket as any).on as jest.Mock;
@@ -397,7 +399,7 @@ describe('AudioBuffer', () => {
 
     it('should skip completion mark if WebSocket is closed', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       // Close WebSocket before stopping
       mockWebSocket.readyState = 3; // CLOSED
@@ -412,7 +414,7 @@ describe('AudioBuffer', () => {
   describe('Send Queue Optimization', () => {
     it('should queue frames for asynchronous sending', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       // Frame should be prepared but not sent immediately
       jest.advanceTimersByTime(25);
@@ -424,7 +426,7 @@ describe('AudioBuffer', () => {
 
     it('should track send statistics correctly', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160)); // 1 frame
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160)); // 1 frame
 
       jest.advanceTimersByTime(25); // Trigger 1 frame send
 
@@ -436,7 +438,7 @@ describe('AudioBuffer', () => {
 
     it('should clear send queue on stop', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(320)); // 2 frames
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(320)); // 2 frames
 
       jest.advanceTimersByTime(25); // Queue one frame
 
@@ -463,7 +465,7 @@ describe('AudioBuffer', () => {
   describe('Memory Management', () => {
     it('should release pooled buffers on stop', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       const initialStats = bufferPool.getStats();
 
@@ -483,7 +485,7 @@ describe('AudioBuffer', () => {
 
       // Should still work
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       jest.advanceTimersByTime(25);
       expect(mockWebSocket.send).toHaveBeenCalled();
@@ -506,7 +508,7 @@ describe('AudioBuffer', () => {
 
     it('should handle very large audio chunks', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
-      const largeChunk = createTestBuffer(8000); // 1 second of audio
+      const largeChunk = AudioTestUtils.createMuLawBuffer(8000); // 1 second of audio
 
       buffer.addAudio(largeChunk);
 
@@ -518,7 +520,7 @@ describe('AudioBuffer', () => {
       const buffer = new AudioBuffer(mockWebSocket, 'test-session');
 
       for (let i = 0; i < 5; i++) {
-        buffer.addAudio(createTestBuffer(160));
+        buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
         buffer.stop(`cycle_${i}`);
       }
 
@@ -533,7 +535,7 @@ describe('AudioBuffer', () => {
       } as any;
 
       const buffer = new AudioBuffer(incompleteWs, 'test-session');
-      buffer.addAudio(createTestBuffer(160));
+      buffer.addAudio(AudioTestUtils.createMuLawBuffer(160));
 
       jest.advanceTimersByTime(25);
 
@@ -543,11 +545,5 @@ describe('AudioBuffer', () => {
   });
 });
 
-function createTestBuffer(size: number): Buffer {
-  // Create a buffer filled with test audio data (alternating pattern for easy debugging)
-  const buffer = Buffer.alloc(size);
-  for (let i = 0; i < size; i++) {
-    buffer[i] = i % 256; // Simple pattern for test data
-  }
-  return buffer;
-}
+// Import real audio test utilities
+import { AudioTestUtils } from '../../utils/AudioTestUtils';

@@ -14,34 +14,34 @@ variable "azs" {
 }
 
 variable "region" {
-  description = "Region to deploy into"
+  description = "AWS region to deploy infrastructure into"
   type        = string
 }
 
 variable "vpc_name" {
-  description = "What to call the VPC"
+  description = "Name for the VPC"
   type        = string
 }
 
 variable "vpc_cidr_block" {
-  description = "CIDR block for the VPC"
+  description = "CIDR block for the VPC (defaults to 10.0.0.0/16 in VPC module if not specified)"
   type        = string
 }
 
 variable "ecs_cluster_name" {
-  description = "Name of ECS Cluster"
+  description = "Name of the ECS cluster"
   type        = string
   default     = "amazon-nova-dev-cluster"
 }
 
 variable "environment" {
-  description = "Environment name"
+  description = "Environment name (dev, staging, prod)"
   type        = string
   default     = "dev"
 }
 
 variable "project_name" {
-  description = "Name of the project"
+  description = "Name of the project, used for resource naming and tagging"
   type        = string
   default     = "amazon-nova-starter"
 }
@@ -54,32 +54,13 @@ variable "common_tags" {
 
 # ECR Variables
 variable "ecr_repository_name" {
-  description = "Name of the ECR repository"
+  description = "Name of the ECR repository for container images"
   type        = string
   default     = "twilio-novasonic-starter"
 }
 
-variable "ecr_image_tag_mutability" {
-  description = "The tag mutability setting for the repository. Must be one of: MUTABLE or IMMUTABLE"
-  type        = string
-  default     = "MUTABLE"
-}
-
-variable "ecr_scan_on_push" {
-  description = "Indicates whether images are scanned after being pushed to the repository"
-  type        = bool
-  default     = true
-}
-
-variable "ecr_encryption_type" {
-  description = "The encryption type to use for the repository. Valid values are AES256 or KMS"
-  type        = string
-  default     = "AES256"
-}
-
-
 variable "ecr_force_delete" {
-  description = "If true, will delete the repository even if it contains images. Use with caution."
+  description = "Allow ECR repository deletion even when it contains images. Set to true for dev environments. Other ECR settings use module defaults (MUTABLE tags, scan on push, AES256 encryption)."
   type        = bool
   default     = true
 }
@@ -130,7 +111,7 @@ variable "cloudwatch_log_retention_days" {
 
 # Twilio Configuration Variables
 variable "twilio_auth_token" {
-  description = "Twilio Auth Token for webhook signature verification"
+  description = "Twilio Auth Token for webhook signature verification. Required when verify_twilio_signature is true. This is a sensitive credential."
   type        = string
   sensitive   = true
   default     = null
@@ -150,26 +131,13 @@ variable "notification_emails" {
 }
 
 variable "slack_webhook_url" {
-  description = "Slack webhook URL for CloudWatch alarm notifications (optional)"
+  description = "Slack webhook URL for CloudWatch alarm notifications (optional). This is a sensitive credential that should be kept secure."
   type        = string
   default     = null
   sensitive   = true
 }
 
-# Knowledge Base and Agent Configuration Variables
-variable "knowledge_base_arns" {
-  description = "List of Bedrock Knowledge Base ARNs that the service can access (deprecated - use external_knowledge_base_arns)"
-  type        = list(string)
-  default     = ["*"]
-}
-
-variable "agent_arns" {
-  description = "List of Bedrock Agent ARNs that the service can invoke (deprecated - use external_agent_arns)"
-  type        = list(string)
-  default     = ["*"]
-}
-
-# New Bedrock Knowledge Base Module Variables
+# Bedrock Knowledge Base Module Variables
 variable "create_knowledge_base" {
   description = "Whether to create a new Bedrock Knowledge Base"
   type        = bool

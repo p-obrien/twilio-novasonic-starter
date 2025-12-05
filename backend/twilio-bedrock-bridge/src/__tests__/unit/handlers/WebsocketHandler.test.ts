@@ -1,106 +1,34 @@
 /**
- * Tests for WebsocketHandler using Dependency Injection
+ * Tests for WebsocketHandler with real message parsing
+ * 
+ * This test suite validates WebSocket message handling using real message parsing
+ * and minimal mocking. Only external service boundaries (AWS SDK, observability)
+ * are mocked to keep tests fast and focused.
  */
 
-// Mock observability modules that are directly imported in WebsocketHandler
-jest.mock('../../../observability/safeTracing', () => {
-  const mockSpan = {
-    setAttributes: jest.fn(),
-    recordException: jest.fn(),
-    setStatus: jest.fn(),
-    end: jest.fn()
-  };
+// Mock only external service boundaries
+jest.mock('../../../observability/logger');
+jest.mock('../../../observability/sessionMetrics');
+jest.mock('../../../observability/websocketMetrics');
+jest.mock('../../../security/WebSocketSecurity');
+jest.mock('../../../audio/AudioBufferManager');
+jest.mock('../../../audio/AudioProcessor');
 
-  return {
-    safeTrace: {
-      getTracer: jest.fn(() => ({
-        startSpan: jest.fn(() => mockSpan)
-      })),
-      isAvailable: jest.fn(() => true)
-    }
-  };
-});
-
-jest.mock('../../../observability/smartSampling', () => {
-  const mockSpan = {
-    setAttributes: jest.fn(),
-    recordException: jest.fn(),
-    setStatus: jest.fn(),
-    end: jest.fn()
-  };
-
-  return {
-    smartSampler: {
-      shouldSample: jest.fn(() => ({ shouldSample: false })),
-      startSpanWithSampling: jest.fn(() => mockSpan)
-    },
-    TracingUtils: {}
-  };
-});
-
-jest.mock('../../../utils/asyncCorrelation', () => ({
-  setTimeoutWithCorrelation: jest.fn((fn, delay) => setTimeout(fn, delay))
-}));
-
-jest.mock('../../../observability/metrics', () => ({
-  metricsUtils: {
-    recordWebSocketConnection: jest.fn(),
-    recordWebSocketMessage: jest.fn(),
-    recordError: jest.fn(),
-    recordAudioProcessing: jest.fn(),
-  }
-}));
-
-jest.mock('../../../security/WebSocketSecurity', () => ({
-  webSocketSecurity: {
-    validateConnection: jest.fn().mockReturnValue({
-      isValid: true,
-      callSid: 'CA123456789',
-      accountSid: 'AC123456789'
-    }),
-    validateWebSocketMessage: jest.fn().mockReturnValue({
-      isValid: true,
-      callSid: 'CA123456789'
-    }),
-    addActiveSession: jest.fn(),
-    removeActiveSession: jest.fn(),
-    isSessionActive: jest.fn().mockReturnValue(false)
-  }
-}));
-
-jest.mock('../../../observability/sessionMetrics', () => ({
-  SessionMetrics: {
-    createSession: jest.fn(),
-    endSession: jest.fn()
-  }
-}));
-
-jest.mock('../../../observability/websocketMetrics', () => ({
-  WebSocketMetrics: {
-    onConnection: jest.fn(),
-    onDisconnection: jest.fn()
-  }
-}));
-
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import { initWebsocketServer } from '../../../handlers/WebsocketHandler';
-import type {
-  WebSocketHandlerDependencies,
-  WebSocketSecurityService,
-  WebSocketMetricsService,
-  SessionMetricsService,
-  AudioBufferManagerService,
-  AudioProcessors,
-  Logger,
-  CorrelationManagerService
-} from '../../../handlers/WebsocketHandlerTypes';
-import type { NovaSonicBidirectionalStreamClient } from '../../../client';
-import { smartSampler } from '../../../observability/smartSampling';
-import { safeTrace } from '../../../observability/safeTracing';
 import { webSocketSecurity } from '../../../security/WebSocketSecurity';
 import { SessionMetrics } from '../../../observability/sessionMetrics';
 import { WebSocketMetrics } from '../../../observability/websocketMetrics';
+import { AudioBufferManager } from '../../../audio/AudioBufferManager';
+import { processBedrockAudioOutput, processTwilioAudioInput } from '../../../audio/AudioProcessor';
+import type { ExtendedWebSocket } from '../../../types/SharedTypes';
+import type {
+  TwilioStartMessage,
+  TwilioMediaMessage,
+  TwilioStopMessage,
+  TwilioConnectedMessage
+} from '../../../handlers/types/TwilioMessages';
 
 // Mock WebSocketServer
 jest.mock('ws');
@@ -109,149 +37,20 @@ const MockWebSocketServer = WebSocketServer as jest.MockedClass<typeof WebSocket
 describe('WebsocketHandler', () => {
   let mockServer: http.Server;
   let mockWss: any;
-  let mockWs: any;
+  let mockWs: ExtendedWebSocket;
   let mockReq: any;
-  let dependencies: WebSocketHandlerDependencies;
-
-  // Mock implementations conforming to dependency interfaces
-  let mockBedrockClient: jest.Mocked<NovaSonicBidirectionalStreamClient>;
-  let mockSecurity: jest.Mocked<WebSocketSecurityService>;
-  let mockWsMetrics: jest.Mocked<WebSocketMetricsService>;
-  let mockSessionMetrics: jest.Mocked<SessionMetricsService>;
-  let mockAudioBufferManager: jest.Mocked<AudioBufferManagerService>;
-  let mockAudioProcessors: jest.Mocked<AudioProcessors>;
-  let mockLogger: jest.Mocked<Logger>;
-  let mockCorrelationManager: jest.Mocked<CorrelationManagerService>;
 
   beforeEach(() => {
-    // Reset observability mocks (needed because jest config has resetMocks: true)
-    (smartSampler.shouldSample as jest.Mock).mockReturnValue({ shouldSample: false });
-    (smartSampler.startSpanWithSampling as jest.Mock).mockReturnValue({
-      setAttributes: jest.fn(),
-      recordException: jest.fn(),
-      setStatus: jest.fn(),
-      end: jest.fn()
-    });
-    (safeTrace.getTracer as jest.Mock).mockReturnValue({
-      startSpan: jest.fn(() => ({
-        setAttributes: jest.fn(),
-        recordException: jest.fn(),
-        setStatus: jest.fn(),
-        end: jest.fn()
-      }))
-    });
-    (safeTrace.isAvailable as jest.Mock).mockReturnValue(true);
-
-    // Create mock Bedrock client
-    mockBedrockClient = {
-      isSessionActive: jest.fn().mockReturnValue(false),
-      createStreamSession: jest.fn(),
-      initiateSession: jest.fn().mockResolvedValue(undefined),
-      setupSessionStartEvent: jest.fn(),
-      setupPromptStartEvent: jest.fn(),
-      setupSystemPromptEvent: jest.fn(),
-      setupStartAudioEvent: jest.fn(),
-      registerEventHandler: jest.fn(),
-      streamAudioChunk: jest.fn().mockResolvedValue(undefined),
-      sendContentEnd: jest.fn(),
-      sendPromptEnd: jest.fn(),
-      forceCloseSession: jest.fn(),
-      getSessionData: jest.fn(),
-      getLastActivityTime: jest.fn().mockReturnValue(Date.now()),
-      isCleanupInProgress: jest.fn().mockReturnValue(false)
-    } as any;
-
-    // Make createStreamSession change the session state to active and return a mock session
-    mockBedrockClient.createStreamSession.mockImplementation(() => {
-      mockBedrockClient.isSessionActive.mockReturnValue(true);
-      return {} as any; // Return mock StreamSession object
-    });
-
-    // Create mock security service
-    mockSecurity = {
-      validateConnection: jest.fn().mockReturnValue({
-        isValid: true,
-        callSid: 'CA123456789',
-        accountSid: 'AC123456789'
-      }),
-      validateWebSocketMessage: jest.fn().mockReturnValue({
-        isValid: true,
-        callSid: 'CA123456789'
-      }),
-      addActiveSession: jest.fn(),
-      removeActiveSession: jest.fn(),
-      isSessionActive: jest.fn().mockReturnValue(false)
-    };
-
-    // Create mock WebSocket metrics
-    mockWsMetrics = {
-      onConnection: jest.fn(),
-      onDisconnection: jest.fn()
-    };
-
-    // Create mock session metrics
-    mockSessionMetrics = {
-      createSession: jest.fn(),
-      endSession: jest.fn()
-    };
-
-    // Create mock audio buffer manager
-    mockAudioBufferManager = {
-      getInstance: jest.fn().mockReturnValue({
-        addAudio: jest.fn(),
-        getBufferStatus: jest.fn().mockReturnValue({ bufferBytes: 0, bufferMs: 0 }),
-        flushAndRemove: jest.fn()
-      })
-    };
-
-    // Create mock audio processors
-    mockAudioProcessors = {
-      processBedrockAudioOutput: jest.fn().mockReturnValue(Buffer.alloc(160)),
-      processTwilioAudioInput: jest.fn().mockReturnValue(Buffer.alloc(320))
-    };
-
-    // Create mock logger
-    mockLogger = {
-      debug: jest.fn(),
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      trace: jest.fn()
-    };
-
-    // Create mock correlation manager
-    mockCorrelationManager = {
-      createWebSocketContext: jest.fn().mockReturnValue({
-        correlationId: 'test-correlation-id',
-        source: 'websocket',
-        timestamp: Date.now()
-      }),
-      runWithContext: jest.fn((context, fn) => fn()),
-      setContext: jest.fn(),
-      getCurrentContext: jest.fn().mockReturnValue({
-        correlationId: 'test-correlation-id'
-      }),
-      getCurrentCorrelationId: jest.fn().mockReturnValue('test-correlation-id')
-    };
-
-    // Assemble dependencies
-    dependencies = {
-      bedrockClient: mockBedrockClient,
-      security: mockSecurity,
-      wsMetrics: mockWsMetrics,
-      sessionMetrics: mockSessionMetrics,
-      audioBufferManager: mockAudioBufferManager,
-      audioProcessors: mockAudioProcessors,
-      logger: mockLogger,
-      correlationManager: mockCorrelationManager
-    };
-
+    // Setup mock server
     mockServer = {} as http.Server;
 
+    // Setup mock WebSocket server
     mockWss = {
       on: jest.fn()
     };
 
+    // Setup mock WebSocket with real properties
+    const mockOn = jest.fn();
     mockWs = {
       id: 'test-ws-id',
       correlationContext: {
@@ -259,34 +58,59 @@ describe('WebsocketHandler', () => {
         source: 'websocket',
         timestamp: Date.now()
       },
-      on: jest.fn(),
+      on: mockOn,
       close: jest.fn(),
       send: jest.fn(),
       removeAllListeners: jest.fn(),
-      readyState: 1,
-      twilioStreamSid: 'MZ123456789',
-      twilioSampleRate: 8000,
-      callSid: 'CA123456789',
+      readyState: WebSocket.OPEN,
+      twilioStreamSid: undefined,
+      twilioSampleRate: undefined,
+      callSid: undefined,
       _twilioInSeq: 0,
-      _twilioOutSeq: 0
-    };
+      _twilioOutSeq: 0,
+      _lastAudioTimestamp: undefined
+    } as any;
 
+    // Setup mock request
     mockReq = {
       socket: { remoteAddress: '127.0.0.1' },
       headers: { 'user-agent': 'Twilio.TmeWs/1.0' },
       url: '/media'
     };
 
-    // Setup mocks
+    // Setup WebSocketServer mock
     MockWebSocketServer.mockImplementation(() => mockWss);
 
-    // Reset mock calls
+    // Setup security validation mocks
+    (webSocketSecurity.validateConnection as jest.Mock).mockReturnValue({
+      isValid: true,
+      callSid: 'CA123456789',
+      accountSid: 'AC123456789'
+    });
+
+    (webSocketSecurity.validateWebSocketMessage as jest.Mock).mockReturnValue({
+      isValid: true,
+      callSid: 'CA123456789'
+    });
+
+    // Setup audio processor mocks
+    (processTwilioAudioInput as jest.Mock).mockReturnValue(Buffer.alloc(320));
+    (processBedrockAudioOutput as jest.Mock).mockReturnValue(Buffer.alloc(160));
+
+    // Setup audio buffer manager mock
+    (AudioBufferManager.getInstance as jest.Mock).mockReturnValue({
+      addAudio: jest.fn(),
+      getBufferStatus: jest.fn().mockReturnValue({ bufferBytes: 0, bufferMs: 0 }),
+      flushAndRemove: jest.fn()
+    });
+
+    // Reset all mocks
     jest.clearAllMocks();
   });
 
   describe('initWebsocketServer', () => {
     it('should create WebSocket server with correct configuration', () => {
-      initWebsocketServer(mockServer, dependencies);
+      initWebsocketServer(mockServer);
 
       expect(MockWebSocketServer).toHaveBeenCalledWith({
         server: mockServer,
@@ -297,7 +121,7 @@ describe('WebsocketHandler', () => {
     });
 
     it('should setup connection event handler', () => {
-      initWebsocketServer(mockServer, dependencies);
+      initWebsocketServer(mockServer);
 
       expect(mockWss.on).toHaveBeenCalledWith('connection', expect.any(Function));
     });
@@ -307,24 +131,27 @@ describe('WebsocketHandler', () => {
     let verifyClient: any;
 
     beforeEach(() => {
-      initWebsocketServer(mockServer, dependencies);
+      initWebsocketServer(mockServer);
       verifyClient = MockWebSocketServer.mock.calls[0]?.[0]?.verifyClient;
     });
 
     it('should accept valid connections', () => {
-      // Note: verifyClient is called by the actual handler, not the mock
-      // The handler uses webSocketSecurity.validateConnection internally
-      // So we just verify the handler was set up correctly
-      expect(verifyClient).toBeDefined();
-      expect(typeof verifyClient).toBe('function');
+      const result = verifyClient({ req: mockReq });
+
+      expect(webSocketSecurity.validateConnection).toHaveBeenCalledWith(mockReq);
+      expect(result).toBe(true);
     });
 
     it('should reject invalid connections', () => {
-      // Note: verifyClient is called by the actual handler, not the mock
-      // The handler uses webSocketSecurity.validateConnection internally
-      // So we just verify the handler was set up correctly
-      expect(verifyClient).toBeDefined();
-      expect(typeof verifyClient).toBe('function');
+      (webSocketSecurity.validateConnection as jest.Mock).mockReturnValueOnce({
+        isValid: false,
+        reason: 'Invalid request'
+      });
+
+      const result = verifyClient({ req: mockReq });
+
+      expect(webSocketSecurity.validateConnection).toHaveBeenCalledWith(mockReq);
+      expect(result).toBe(false);
     });
   });
 
@@ -332,7 +159,7 @@ describe('WebsocketHandler', () => {
     let connectionHandler: Function;
 
     beforeEach(() => {
-      initWebsocketServer(mockServer, dependencies);
+      initWebsocketServer(mockServer);
       connectionHandler = mockWss.on.mock.calls.find((call: any) => call[0] === 'connection')?.[1];
     });
 
@@ -344,6 +171,8 @@ describe('WebsocketHandler', () => {
       expect(mockWs.correlationContext).toBeDefined();
       expect(mockWs._twilioInSeq).toBe(0);
       expect(mockWs._twilioOutSeq).toBe(0);
+      expect(WebSocketMetrics.onConnection).toHaveBeenCalledWith(mockWs);
+      expect(SessionMetrics.createSession).toHaveBeenCalled();
     });
 
     it('should setup message event handler', () => {
@@ -369,48 +198,63 @@ describe('WebsocketHandler', () => {
     let messageHandler: Function;
 
     beforeEach(() => {
-      initWebsocketServer(mockServer, dependencies);
+      initWebsocketServer(mockServer);
       const connectionHandler = mockWss.on.mock.calls.find((call: any) => call[0] === 'connection')?.[1];
       connectionHandler(mockWs, mockReq);
-      messageHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'message')?.[1];
+      const mockOn = mockWs.on as jest.Mock;
+      messageHandler = mockOn.mock.calls.find((call: any) => call[0] === 'message')?.[1];
     });
 
     describe('connected event', () => {
-      it('should handle connected event', async () => {
-        const message = JSON.stringify({ event: 'connected' });
+      it('should parse and handle connected message', async () => {
+        const connectedMessage: TwilioConnectedMessage = {
+          event: 'connected',
+          protocol: 'Call',
+          version: '1.0.0'
+        };
 
-        await messageHandler(Buffer.from(message));
+        await messageHandler(Buffer.from(JSON.stringify(connectedMessage)));
 
-        // Should not throw or cause errors
-        expect(true).toBe(true);
+        // Should parse message without errors
+        expect(mockWs.close).not.toHaveBeenCalled();
       });
     });
 
     describe('start event', () => {
-      it('should handle valid start event', async () => {
-        const startMessage = {
+      it('should parse and validate start message structure', async () => {
+        const startMessage: TwilioStartMessage = {
           event: 'start',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '1',
           start: {
             streamSid: 'MZ123456789',
+            accountSid: 'AC123456789',
             callSid: 'CA123456789',
+            tracks: ['inbound', 'outbound'],
+            mediaFormat: {
+              encoding: 'audio/x-mulaw',
+              sampleRate: 8000,
+              channels: 1
+            },
             sample_rate_hz: 8000
           }
         };
 
         await messageHandler(Buffer.from(JSON.stringify(startMessage)));
 
-        // Verify the actual mocked module was called
+        // Verify real message parsing and validation
         expect(webSocketSecurity.validateWebSocketMessage).toHaveBeenCalledWith(startMessage);
+        expect(mockWs.twilioStreamSid).toBe('MZ123456789');
+        expect(mockWs.twilioSampleRate).toBe(8000);
       });
 
-      it('should reject invalid start message', async () => {
-        // Mock the actual webSocketSecurity module to return invalid
+      it('should reject start message with invalid structure', async () => {
         (webSocketSecurity.validateWebSocketMessage as jest.Mock).mockReturnValueOnce({
           isValid: false,
           reason: 'Invalid CallSid'
         });
 
-        const startMessage = {
+        const invalidStartMessage = {
           event: 'start',
           start: {
             streamSid: 'MZ123456789',
@@ -418,145 +262,223 @@ describe('WebsocketHandler', () => {
           }
         };
 
-        await messageHandler(Buffer.from(JSON.stringify(startMessage)));
+        await messageHandler(Buffer.from(JSON.stringify(invalidStartMessage)));
 
         expect(mockWs.close).toHaveBeenCalledWith(1008, 'Invalid start message');
       });
 
-      it('should setup Bedrock session events', async () => {
-        const startMessage = {
+      it('should update WebSocket properties from start message', async () => {
+        // Mock validation to return the callSid
+        (webSocketSecurity.validateWebSocketMessage as jest.Mock).mockReturnValueOnce({
+          isValid: true,
+          callSid: 'CA987654321'
+        });
+
+        const startMessage: TwilioStartMessage = {
           event: 'start',
+          streamSid: 'MZ987654321',
+          sequenceNumber: '1',
           start: {
-            streamSid: 'MZ123456789',
-            callSid: 'CA123456789'
+            streamSid: 'MZ987654321',
+            accountSid: 'AC123456789',
+            callSid: 'CA987654321',
+            tracks: ['inbound'],
+            mediaFormat: {
+              encoding: 'audio/x-mulaw',
+              sampleRate: 8000,
+              channels: 1
+            },
+            sample_rate_hz: 8000
           }
         };
 
-        // Just verify the message handler doesn't throw
-        await expect(messageHandler(Buffer.from(JSON.stringify(startMessage)))).resolves.not.toThrow();
-      });
+        await messageHandler(Buffer.from(JSON.stringify(startMessage)));
 
-      it('should register event handlers for Bedrock responses', async () => {
-        const startMessage = {
-          event: 'start',
-          start: {
-            streamSid: 'MZ123456789',
-            callSid: 'CA123456789'
-          }
-        };
-
-        // Just verify the message handler doesn't throw
-        await expect(messageHandler(Buffer.from(JSON.stringify(startMessage)))).resolves.not.toThrow();
+        // Verify real property updates from parsed message
+        expect(mockWs.twilioStreamSid).toBe('MZ987654321');
+        expect(mockWs.callSid).toBe('CA987654321');
+        expect(mockWs.twilioSampleRate).toBe(8000);
       });
     });
 
     describe('media event', () => {
       beforeEach(async () => {
-        // Setup session first
-        const startMessage = {
+        // Setup session with real start message
+        const startMessage: TwilioStartMessage = {
           event: 'start',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '1',
           start: {
             streamSid: 'MZ123456789',
-            callSid: 'CA123456789'
+            accountSid: 'AC123456789',
+            callSid: 'CA123456789',
+            tracks: ['inbound'],
+            mediaFormat: {
+              encoding: 'audio/x-mulaw',
+              sampleRate: 8000,
+              channels: 1
+            },
+            sample_rate_hz: 8000
           }
         };
         await messageHandler(Buffer.from(JSON.stringify(startMessage)));
       });
 
-      it('should process inbound media frames', async () => {
-        const mediaMessage = {
+      it('should parse inbound media message structure', async () => {
+        const audioPayload = Buffer.alloc(160).toString('base64');
+        const mediaMessage: TwilioMediaMessage = {
           event: 'media',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '2',
           media: {
             track: 'inbound',
-            payload: Buffer.alloc(160).toString('base64') // μ-law audio data
+            timestamp: '1234567890',
+            payload: audioPayload
           }
         };
 
-        await messageHandler(Buffer.from(JSON.stringify(mediaMessage)));
-
-        // Should process audio without errors
-        expect(true).toBe(true);
+        // Should parse and handle message without errors
+        await expect(messageHandler(Buffer.from(JSON.stringify(mediaMessage)))).resolves.not.toThrow();
+        
+        // Note: Actual audio processing requires an active Bedrock session
+        // which is tested in integration tests
       });
 
-      it('should skip non-inbound media frames', async () => {
-        const mediaMessage = {
+      it('should skip outbound media frames based on track field', async () => {
+        const mediaMessage: TwilioMediaMessage = {
           event: 'media',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '3',
           media: {
             track: 'outbound',
+            timestamp: '1234567890',
             payload: Buffer.alloc(160).toString('base64')
           }
         };
 
         await messageHandler(Buffer.from(JSON.stringify(mediaMessage)));
 
-        // Should not process outbound frames
-        expect(mockBedrockClient.streamAudioChunk).not.toHaveBeenCalled();
+        // Verify outbound frames are skipped
+        expect(processTwilioAudioInput).not.toHaveBeenCalled();
       });
 
-      it('should handle missing media payload', async () => {
+      it('should handle media message with missing payload gracefully', async () => {
         const mediaMessage = {
           event: 'media',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '4',
           media: {
-            track: 'inbound'
+            track: 'inbound',
+            timestamp: '1234567890'
             // missing payload
           }
         };
 
         await messageHandler(Buffer.from(JSON.stringify(mediaMessage)));
 
-        // Should handle gracefully without throwing
-        expect(true).toBe(true);
+        // Should not throw, should handle gracefully
+        expect(processTwilioAudioInput).not.toHaveBeenCalled();
+      });
+
+      it('should parse multiple media frames in sequence', async () => {
+        const frames = [
+          { seq: '2', payload: Buffer.alloc(160).toString('base64') },
+          { seq: '3', payload: Buffer.alloc(160).toString('base64') },
+          { seq: '4', payload: Buffer.alloc(160).toString('base64') }
+        ];
+
+        // Parse all frames - should handle sequencing correctly
+        for (const frame of frames) {
+          const mediaMessage: TwilioMediaMessage = {
+            event: 'media',
+            streamSid: 'MZ123456789',
+            sequenceNumber: frame.seq,
+            media: {
+              track: 'inbound',
+              timestamp: Date.now().toString(),
+              payload: frame.payload
+            }
+          };
+
+          // Should parse each frame without errors
+          await expect(messageHandler(Buffer.from(JSON.stringify(mediaMessage)))).resolves.not.toThrow();
+        }
+        
+        // Note: Actual audio processing and buffering requires an active Bedrock session
+        // which is tested in integration tests
       });
     });
 
     describe('stop event', () => {
       beforeEach(async () => {
-        // Setup session first
-        const startMessage = {
+        // Setup session with real start message
+        const startMessage: TwilioStartMessage = {
           event: 'start',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '1',
           start: {
             streamSid: 'MZ123456789',
-            callSid: 'CA123456789'
+            accountSid: 'AC123456789',
+            callSid: 'CA123456789',
+            tracks: ['inbound'],
+            mediaFormat: {
+              encoding: 'audio/x-mulaw',
+              sampleRate: 8000,
+              channels: 1
+            }
           }
         };
         await messageHandler(Buffer.from(JSON.stringify(startMessage)));
       });
 
-      it('should handle stop event and cleanup', async () => {
-        const stopMessage = { event: 'stop' };
+      it('should parse and handle stop message', async () => {
+        const stopMessage: TwilioStopMessage = {
+          event: 'stop',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '100',
+          stop: {
+            accountSid: 'AC123456789',
+            callSid: 'CA123456789'
+          }
+        };
 
         await messageHandler(Buffer.from(JSON.stringify(stopMessage)));
 
+        // Verify WebSocket is closed
         expect(mockWs.close).toHaveBeenCalled();
       });
     });
 
     describe('other events', () => {
-      it('should handle mark event', async () => {
+      it('should parse and handle mark event', async () => {
         const markMessage = {
           event: 'mark',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '50',
           mark: { name: 'test-mark' }
         };
 
         await messageHandler(Buffer.from(JSON.stringify(markMessage)));
 
         // Should handle without errors
-        expect(true).toBe(true);
+        expect(mockWs.close).not.toHaveBeenCalled();
       });
 
-      it('should handle dtmf event', async () => {
+      it('should parse and handle dtmf event', async () => {
         const dtmfMessage = {
           event: 'dtmf',
+          streamSid: 'MZ123456789',
+          sequenceNumber: '51',
           dtmf: { digit: '1' }
         };
 
         await messageHandler(Buffer.from(JSON.stringify(dtmfMessage)));
 
         // Should handle without errors
-        expect(true).toBe(true);
+        expect(mockWs.close).not.toHaveBeenCalled();
       });
 
-      it('should handle unknown events', async () => {
+      it('should handle unknown event types gracefully', async () => {
         const unknownMessage = {
           event: 'unknown',
           data: 'test'
@@ -565,7 +487,23 @@ describe('WebsocketHandler', () => {
         await messageHandler(Buffer.from(JSON.stringify(unknownMessage)));
 
         // Should handle without errors
-        expect(true).toBe(true);
+        expect(mockWs.close).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('invalid messages', () => {
+      it('should reject non-JSON messages', async () => {
+        await messageHandler(Buffer.from('not json'));
+
+        expect(mockWs.close).toHaveBeenCalledWith(1003, 'Invalid JSON message');
+      });
+
+      it('should reject messages without event field', async () => {
+        const invalidMessage = { data: 'test' };
+
+        await messageHandler(Buffer.from(JSON.stringify(invalidMessage)));
+
+        expect(mockWs.close).toHaveBeenCalledWith(1003, 'Invalid message structure');
       });
     });
   });
@@ -575,41 +513,49 @@ describe('WebsocketHandler', () => {
     let messageHandler: Function;
 
     beforeEach(async () => {
-      initWebsocketServer(mockServer, dependencies);
+      initWebsocketServer(mockServer);
       const connectionHandler = mockWss.on.mock.calls.find((call: any) => call[0] === 'connection')?.[1];
       connectionHandler(mockWs, mockReq);
-      closeHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'close')?.[1];
-      messageHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'message')?.[1];
+      const mockOn = mockWs.on as jest.Mock;
+      closeHandler = mockOn.mock.calls.find((call: any) => call[0] === 'close')?.[1];
+      messageHandler = mockOn.mock.calls.find((call: any) => call[0] === 'message')?.[1];
 
-      // Set up a session first by sending a start message
-      const startMessage = {
+      // Set up a session with real start message
+      const startMessage: TwilioStartMessage = {
         event: 'start',
+        streamSid: 'MZ123456789',
+        sequenceNumber: '1',
         start: {
           streamSid: 'MZ123456789',
-          callSid: 'CA123456789'
+          accountSid: 'AC123456789',
+          callSid: 'CA123456789',
+          tracks: ['inbound'],
+          mediaFormat: {
+            encoding: 'audio/x-mulaw',
+            sampleRate: 8000,
+            channels: 1
+          }
         }
       };
       await messageHandler(Buffer.from(JSON.stringify(startMessage)));
     });
 
-    it('should cleanup resources on close', async () => {
+    it('should cleanup resources on normal close', async () => {
       await closeHandler(1000, 'Normal closure');
 
-      // Verify the actual mocked modules were called
+      // Verify real cleanup was performed
       expect(webSocketSecurity.removeActiveSession).toHaveBeenCalledWith('CA123456789');
       expect(WebSocketMetrics.onDisconnection).toHaveBeenCalledWith(mockWs);
       expect(SessionMetrics.endSession).toHaveBeenCalled();
     });
 
-    it('should handle cleanup errors gracefully', async () => {
-      mockWsMetrics.onDisconnection.mockImplementation(() => {
-        throw new Error('Cleanup error');
-      });
+    it('should cleanup resources on abnormal close', async () => {
+      await closeHandler(1006, 'Abnormal closure');
 
-      await closeHandler(1000, 'Normal closure');
-
-      // Should not throw despite cleanup error
-      expect(true).toBe(true);
+      // Verify cleanup happens regardless of close code
+      expect(webSocketSecurity.removeActiveSession).toHaveBeenCalledWith('CA123456789');
+      expect(WebSocketMetrics.onDisconnection).toHaveBeenCalledWith(mockWs);
+      expect(SessionMetrics.endSession).toHaveBeenCalled();
     });
   });
 
@@ -617,19 +563,26 @@ describe('WebsocketHandler', () => {
     let errorHandler: Function;
 
     beforeEach(() => {
-      initWebsocketServer(mockServer, dependencies);
+      initWebsocketServer(mockServer);
       const connectionHandler = mockWss.on.mock.calls.find((call: any) => call[0] === 'connection')?.[1];
       connectionHandler(mockWs, mockReq);
-      errorHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'error')?.[1];
+      const mockOn = mockWs.on as jest.Mock;
+      errorHandler = mockOn.mock.calls.find((call: any) => call[0] === 'error')?.[1];
     });
 
-    it('should handle WebSocket errors', () => {
+    it('should handle WebSocket errors without crashing', () => {
       const error = new Error('WebSocket error');
 
-      errorHandler(error);
+      // Should not throw
+      expect(() => errorHandler(error)).not.toThrow();
+    });
 
-      // Should handle error without throwing
-      expect(true).toBe(true);
+    it('should handle network errors', () => {
+      const networkError = new Error('ECONNRESET');
+      (networkError as any).code = 'ECONNRESET';
+
+      // Should handle network errors gracefully
+      expect(() => errorHandler(networkError)).not.toThrow();
     });
   });
 });

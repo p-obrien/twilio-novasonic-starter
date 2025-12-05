@@ -3,6 +3,9 @@
  * 
  * Tests for audio format conversion and processing utilities including
  * μ-law encoding/decoding, resampling, and format detection.
+ * 
+ * These tests use real audio processing operations without mocks to verify
+ * actual conversion behavior and audio quality.
  */
 
 import {
@@ -17,14 +20,15 @@ import {
     AudioProcessingBenchmarker
 } from '../../../audio/AudioProcessor';
 import { BufferPool } from '../../../audio/BufferPool';
+import { AudioTestUtils } from '../../utils/AudioTestUtils';
 
 describe('AudioProcessor', () => {
     let bufferPool: BufferPool;
 
     beforeEach(() => {
-        // Create isolated buffer pool for each test
+        // Use real buffer pool for testing actual audio processing
+        // Create isolated instance to avoid test interference
         bufferPool = BufferPool.create({ initialSize: 5, maxSize: 20 });
-        // Mock the singleton to return our test instance
         jest.spyOn(BufferPool, 'getInstance').mockReturnValue(bufferPool);
     });
 
@@ -99,7 +103,7 @@ describe('AudioProcessor', () => {
     describe('Buffer Conversion', () => {
         describe('muLawBufferToPcm16LE', () => {
             it('should convert μ-law buffer to PCM16LE with correct size', () => {
-                const muLawBuffer = createMuLawTestBuffer(160);
+                const muLawBuffer = AudioTestUtils.createMuLawBuffer(160);
                 const pcmBuffer = muLawBufferToPcm16LE(muLawBuffer);
 
                 expect(pcmBuffer.length).toBe(320); // 160 * 2 bytes per sample
@@ -112,7 +116,7 @@ describe('AudioProcessor', () => {
             });
 
             it('should produce valid PCM16LE data', () => {
-                const muLawBuffer = createMuLawTestBuffer(10);
+                const muLawBuffer = AudioTestUtils.createMuLawBuffer(10);
                 const pcmBuffer = muLawBufferToPcm16LE(muLawBuffer);
 
                 // Check that we can read 16-bit samples
@@ -126,7 +130,7 @@ describe('AudioProcessor', () => {
 
         describe('pcm16BufferToMuLaw', () => {
             it('should convert PCM16LE buffer to μ-law with correct size', () => {
-                const pcmBuffer = createPcm16TestBuffer(160);
+                const pcmBuffer = AudioTestUtils.createPcm16Buffer(160);
                 const muLawBuffer = pcm16BufferToMuLaw(pcmBuffer);
 
                 expect(muLawBuffer.length).toBe(160); // 320 bytes / 2 bytes per sample
@@ -139,7 +143,7 @@ describe('AudioProcessor', () => {
             });
 
             it('should produce valid μ-law data', () => {
-                const pcmBuffer = createPcm16TestBuffer(10);
+                const pcmBuffer = AudioTestUtils.createPcm16Buffer(10);
                 const muLawBuffer = pcm16BufferToMuLaw(pcmBuffer);
 
                 for (let i = 0; i < muLawBuffer.length; i++) {
@@ -153,14 +157,14 @@ describe('AudioProcessor', () => {
     describe('Resampling', () => {
         describe('upsample8kTo16k', () => {
             it('should double the sample count', () => {
-                const input = createPcm16TestBuffer(80); // 80 samples at 8kHz
+                const input = AudioTestUtils.createPcm16Buffer(80); // 80 samples at 8kHz
                 const output = upsample8kTo16k(input);
 
                 expect(output.length).toBe(320); // 160 samples * 2 bytes = 320 bytes
             });
 
             it('should maintain audio duration', () => {
-                const input = createPcm16TestBuffer(160); // 20ms at 8kHz
+                const input = AudioTestUtils.createPcm16Buffer(160); // 20ms at 8kHz
                 const output = upsample8kTo16k(input);
 
                 const inputSamples = input.length / 2;
@@ -195,7 +199,7 @@ describe('AudioProcessor', () => {
 
         describe('downsampleWithAntiAliasing', () => {
             it('should reduce sample count correctly', () => {
-                const input = createPcm16TestBuffer(320); // 320 samples
+                const input = AudioTestUtils.createPcm16Buffer(320); // 320 samples
                 const output = downsampleWithAntiAliasing(input, 16000, 8000);
 
                 const expectedSamples = Math.floor(320 / 2);
@@ -203,7 +207,7 @@ describe('AudioProcessor', () => {
             });
 
             it('should handle various sample rate ratios', () => {
-                const input = createPcm16TestBuffer(480); // 480 samples
+                const input = AudioTestUtils.createPcm16Buffer(480); // 480 samples
 
                 // 24kHz to 8kHz (3:1 ratio)
                 const output = downsampleWithAntiAliasing(input, 24000, 8000);
@@ -247,7 +251,7 @@ describe('AudioProcessor', () => {
     describe('High-level Processing Functions', () => {
         describe('processTwilioAudioInput', () => {
             it('should convert μ-law to PCM16LE at 16kHz', () => {
-                const muLawInput = createMuLawTestBuffer(160); // 20ms at 8kHz
+                const muLawInput = AudioTestUtils.createMuLawBuffer(160); // 20ms at 8kHz
                 const result = processTwilioAudioInput(muLawInput);
 
                 // Should be upsampled to 16kHz
@@ -255,7 +259,7 @@ describe('AudioProcessor', () => {
             });
 
             it('should apply padding for small chunks', () => {
-                const smallInput = createMuLawTestBuffer(80); // 10ms at 8kHz
+                const smallInput = AudioTestUtils.createMuLawBuffer(80); // 10ms at 8kHz
                 const result = processTwilioAudioInput(smallInput);
 
                 // Should be padded to at least 10ms at 16kHz (160 samples = 320 bytes)
@@ -273,7 +277,7 @@ describe('AudioProcessor', () => {
 
         describe('processBedrockAudioOutput', () => {
             it('should process base64 PCM audio to μ-law', () => {
-                const pcmData = createPcm16TestBuffer(320); // 20ms at 16kHz
+                const pcmData = AudioTestUtils.createPcm16Buffer(320); // 20ms at 16kHz
                 const base64Data = pcmData.toString('base64');
 
                 const audioOutput = {
@@ -288,7 +292,7 @@ describe('AudioProcessor', () => {
             });
 
             it('should handle μ-law input correctly', () => {
-                const muLawData = createMuLawTestBuffer(160);
+                const muLawData = AudioTestUtils.createMuLawBuffer(160);
                 const base64Data = muLawData.toString('base64');
 
                 const audioOutput = {
@@ -302,7 +306,7 @@ describe('AudioProcessor', () => {
             });
 
             it('should handle various response formats', () => {
-                const pcmData = createPcm16TestBuffer(160);
+                const pcmData = AudioTestUtils.createPcm16Buffer(160);
                 const base64Data = pcmData.toString('base64');
 
                 const formats = [
@@ -325,7 +329,7 @@ describe('AudioProcessor', () => {
             });
 
             it('should handle invalid sample rates gracefully', () => {
-                const pcmData = createPcm16TestBuffer(160);
+                const pcmData = AudioTestUtils.createPcm16Buffer(160);
                 const base64Data = pcmData.toString('base64');
 
                 const audioOutput = {
@@ -384,7 +388,7 @@ describe('AudioProcessor', () => {
         it('should use buffer pool for allocations', () => {
             const initialStats = bufferPool.getStats();
 
-            const muLawBuffer = createMuLawTestBuffer(160);
+            const muLawBuffer = AudioTestUtils.createMuLawBuffer(160);
             const pcmBuffer = muLawBufferToPcm16LE(muLawBuffer);
 
             const afterStats = bufferPool.getStats();
@@ -401,12 +405,12 @@ describe('AudioProcessor', () => {
             // Fill up the buffer pool
             const buffers = [];
             for (let i = 0; i < 25; i++) { // More than maxSize
-                const buffer = muLawBufferToPcm16LE(createMuLawTestBuffer(160));
+                const buffer = muLawBufferToPcm16LE(AudioTestUtils.createMuLawBuffer(160));
                 buffers.push(buffer);
             }
 
             // Should still work even when pool is exhausted
-            const result = muLawBufferToPcm16LE(createMuLawTestBuffer(160));
+            const result = muLawBufferToPcm16LE(AudioTestUtils.createMuLawBuffer(160));
             expect(result.length).toBe(320);
 
             // Clean up
@@ -424,7 +428,7 @@ describe('AudioProcessor', () => {
         });
 
         it('should handle very large buffers', () => {
-            const largeBuffer = createMuLawTestBuffer(8000); // 1 second at 8kHz
+            const largeBuffer = AudioTestUtils.createMuLawBuffer(8000); // 1 second at 8kHz
             const result = muLawBufferToPcm16LE(largeBuffer);
             expect(result.length).toBe(16000);
         });
@@ -442,3 +446,4 @@ describe('AudioProcessor', () => {
         });
     });
 });
+

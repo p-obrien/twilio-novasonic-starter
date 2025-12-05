@@ -1,6 +1,7 @@
+# Core ECS Configuration
 variable "ecs_cluster_name" {
   description = "Name for the ECS Cluster"
-  type = string
+  type        = string
 }
 
 variable "tags" {
@@ -15,7 +16,7 @@ variable "ecr_repository_url" {
 }
 
 variable "region" {
-  description = "AWS region"
+  description = "AWS region for AWS SDK configuration"
   type        = string
 }
 
@@ -31,15 +32,16 @@ variable "desired_count" {
   default     = 1
 }
 
+# Networking Configuration
 variable "subnet_ids" {
   description = "List of subnet IDs for the ECS service"
   type        = list(string)
 }
 
 variable "assign_public_ip" {
-  description = "Whether to assign a public IP to the ECS tasks"
+  description = "Whether to assign a public IP to the ECS tasks. Defaults to false for security."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "vpc_id" {
@@ -59,7 +61,13 @@ variable "alb_security_group_id" {
   default     = null
 }
 
-# Logging configuration variables
+# Application Configuration
+variable "domain_name" {
+  description = "Domain name for the PUBLIC_URL environment variable"
+  type        = string
+  default     = null
+}
+
 variable "log_level" {
   description = "Log level for the application (debug, info, warn, error)"
   type        = string
@@ -84,15 +92,9 @@ variable "cloudwatch_log_retention_days" {
   default     = 7
 }
 
-variable "domain_name" {
-  description = "Domain name for the PUBLIC_URL environment variable"
-  type        = string
-  default     = null
-}
-
-# Twilio configuration variables
+# Twilio Configuration
 variable "twilio_auth_token" {
-  description = "Twilio Auth Token for webhook signature verification"
+  description = "Twilio Auth Token for webhook signature verification. Required for production use."
   type        = string
   sensitive   = true
   default     = null
@@ -104,13 +106,7 @@ variable "verify_twilio_signature" {
   default     = true
 }
 
-variable "environment" {
-  description = "Environment name (dev, staging, prod)"
-  type        = string
-  default     = "prod"
-}
-
-# Knowledge Base and Agent configuration variables
+# Bedrock Knowledge Base Configuration
 variable "knowledge_base_arns" {
   description = "List of Bedrock Knowledge Base ARNs that the service can access. Use ['*'] for all knowledge bases."
   type        = list(string)
@@ -123,6 +119,7 @@ variable "knowledge_base_id" {
   default     = null
 }
 
+# Bedrock Agent Configuration
 variable "agent_arns" {
   description = "List of Bedrock Agent ARNs that the service can invoke. Use ['*'] for all agents."
   type        = list(string)
@@ -141,7 +138,7 @@ variable "agent_alias_id" {
   default     = null
 }
 
-# Conversation configuration variables
+# Conversation Configuration
 variable "greeting_message" {
   description = "Greeting message that Nova Sonic will speak when a call starts"
   type        = string

@@ -58,9 +58,16 @@ module.exports = {
   },
   
   // Performance optimizations
-  maxWorkers: '50%',
+  maxWorkers: '50%', // Run tests in parallel using 50% of CPU cores
   cache: true,
   cacheDirectory: '<rootDir>/node_modules/.cache/jest',
+  
+  // Performance monitoring
+  detectOpenHandles: false, // Disable for performance (enable for debugging)
+  forceExit: false, // Let tests complete naturally
+  
+  // Parallel execution for unit tests (integration tests use --runInBand)
+  maxConcurrency: 5, // Max concurrent test suites
   
   // Clean state between tests
   clearMocks: true,
@@ -70,6 +77,12 @@ module.exports = {
   // Clean output
   verbose: false,
   silent: false,
+  
+  // Custom reporters for performance monitoring
+  reporters: [
+    'default',
+    ['<rootDir>/src/__tests__/utils/PerformanceReporter.ts', { slowThreshold: 1000 }]
+  ],
   
   // Error handling
   errorOnDeprecated: true,
