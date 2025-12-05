@@ -9,21 +9,7 @@ resource "aws_ecr_repository" "repository" {
 
   encryption_configuration {
     encryption_type = var.encryption_type
-    kms_key         = var.kms_key
   }
 
   tags = var.tags
-}
-
-resource "aws_ecr_lifecycle_policy" "policy" {
-  count      = var.lifecycle_policy != null ? 1 : 0
-  repository = aws_ecr_repository.repository.name
-
-  policy = var.lifecycle_policy
-}
-
-resource "aws_ecr_repository_policy" "repository_policy" {
-  count      = var.repository_policy != null ? 1 : 0
-  repository = aws_ecr_repository.repository.name
-  policy     = var.repository_policy
 }

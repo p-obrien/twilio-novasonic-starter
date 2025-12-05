@@ -44,6 +44,7 @@
     "test:ci:full": "npm run test:all",
     "test:watch": "jest --watch --testPathPattern=unit",
     "test:coverage": "jest --coverage",
+    "test:perf": "jest --testPathPattern=unit --maxWorkers=50% --verbose",
     "lint": "echo 'Add ESLint configuration'",
     "clean": "rm -rf dist"
   },
@@ -53,6 +54,7 @@
     "@types/node": "^24.5.2",
     "@types/supertest": "^6.0.3",
     "@types/ws": "^8.5.12",
+    "fast-check": "^3.15.0",
     "jest": "^29.7.0",
     "supertest": "^6.3.4",
     "ts-jest": "^29.4.3",

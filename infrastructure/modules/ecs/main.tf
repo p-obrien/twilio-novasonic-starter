@@ -445,7 +445,7 @@ resource "aws_ecs_task_definition" "twilio_media_stream" {
         },
         {
           name  = "OTEL_RESOURCE_ATTRIBUTES"
-          value = "service.name=twilio-bedrock-bridge,service.version=0.1.0,deployment.environment=${var.environment}"
+          value = "service.name=twilio-bedrock-bridge,service.version=0.1.0,deployment.environment=${lookup(var.tags, "Environment", "unknown")}"
         },
         {
           name  = "ENABLE_XRAY"
