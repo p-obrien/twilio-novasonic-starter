@@ -61,11 +61,11 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-agent-runtime": "^3.922.0",
-    "@aws-sdk/client-bedrock-agentcore": "^3.922.0",
-    "@aws-sdk/client-bedrock-runtime": "^3.888.0",
-    "@aws-sdk/client-cloudwatch": "^3.899.0",
-    "@aws-sdk/credential-providers": "^3.888.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.1010.0",
+    "@aws-sdk/client-bedrock-agentcore": "^3.1010.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1010.0",
+    "@aws-sdk/client-cloudwatch": "^3.1010.0",
+    "@aws-sdk/credential-providers": "^3.1010.0",
     "@aws/aws-distro-opentelemetry-node-autoinstrumentation": "^0.4.0",
     "@opentelemetry/api": "^1.9.0",
     "@types/twilio": "^3.19.2",
